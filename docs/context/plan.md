@@ -27,7 +27,7 @@
 - **Entry state**: Phase 1 exit state — `swift test` passes on the skeleton.
 - **Deliverable**: All §4 types declared in `Sources/UntitledCore/`, compiling with zero warnings. `BlockID` is `Int`; `Block.id` is `let` (immutable); `Document.nextBlockID` is `private(set)` and has a factory method `mutating func mintBlockID() -> BlockID`. Every type and public member has a JSDoc/Swift doc-comment per the documentation standard. A compile-only test confirms all types are visible from the test target. No behavior yet — that is Phase 3.
 - **Exit state**: `swift build` succeeds with all §4 types present. `swift test` still passes (compile test). Types committed.
-- **Status**: CURRENT
+- **Status**: COMPLETE — all §4 types declared across Inline/Block/Structure/Document.swift, 0 build warnings; 2 Swift Testing tests green (assembly + `mintBlockID` mutation). (session ca5fff, 2026-06-05)
 
 ---
 
@@ -43,7 +43,7 @@
   - All four ADR-0010 cut-relocation rules exercised: split re-anchors trailing-half cuts to the new block; merge re-anchors retired-block cuts to the survivor at the merge offset; delete relocates anchored cuts to the nearest surviving boundary (or drops if document empties); same-block-edit shifts offsets.
   - Test suite graded GREEN before commit (no RED or YELLOW assertions).
 - **Exit state**: `swift test` passes with all lifecycle behavioral tests GREEN. Operations and tests committed. The core correctly maintains cut integrity through any block mutation.
-- **Status**: PENDING
+- **Status**: CURRENT
 
 ---
 
