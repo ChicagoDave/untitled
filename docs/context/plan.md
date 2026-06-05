@@ -61,4 +61,4 @@
   - Behavioral tests for all DOES and REJECTS WHEN lines: malformed input rejection, lossless round-trip, correct token sequence for each block type (including SetPiece `[line]` codes and `[Chapter]` cut codes), correct REJECTS WHEN for malformed fences or unknown sidecar IDs.
   - Test suite graded GREEN before commit.
 - **Exit state**: `swift test` passes with all parse/serialize and revealProjection tests GREEN. The headless core is complete and committed. `displayProjection`, peek/@-bible, chapter-slicing UI, and templates remain unimplemented — this is correct per scope.
-- **Status**: CURRENT
+- **Status**: COMPLETE — `RevealToken`/`CodeID` (RevealToken.swift), `revealProjection` (Reveal.swift), `serialize`/`parse`/`ParseError` over a JSON sidecar (Storage.swift); 29 Swift Testing tests added (16 storage round-trip/rejection + 13 reveal), 48 total GREEN, 0 warnings. Decision (ADR-0009): explicit inline italic (`Run.italic`) IS a reveal code — `[i]`/`[/i]` chips; a set-piece's *derived* italic produces no chips. (session 54ff60, 2026-06-05)
