@@ -1,0 +1,14 @@
+# DevArch local-only session artifacts
+docs/context/.session-state-*.json
+docs/context/.devarch-gate-*
+docs/context/.active-session
+
+# OS
+.DS_Store
+
+# Xcode / Swift
+*.xcuserstate
+DerivedData/
+*.o
+*.d
+.build/
