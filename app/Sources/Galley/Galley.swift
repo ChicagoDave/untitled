@@ -12,9 +12,11 @@
 
 import AppKit
 import SwiftUI
+import GalleyShell
 
-/// The application entry point: one window group over a single `DocumentModel`,
-/// with Open/Save wired into the standard menu commands.
+/// The application entry point: one window group over a single `WorkspaceModel`
+/// (an ordered set of open document buffers), with New/Open/Save wired into the
+/// standard menu commands.
 @main
 struct Galley: App {
 
@@ -22,20 +24,22 @@ struct Galley: App {
     /// `AppDelegate`).
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
-    /// The window's document state.
-    @State private var model = DocumentModel()
+    /// The window's workspace — the open buffers and the current one.
+    @State private var workspace = WorkspaceModel()
 
     var body: some Scene {
         WindowGroup("Galley") {
-            ContentView(model: model)
+            ContentView(workspace: workspace)
         }
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Open…") { model.open() }
+                Button("New") { workspace.new() }
+                    .keyboardShortcut("n", modifiers: .command)
+                Button("Open…") { workspace.openWithPanel() }
                     .keyboardShortcut("o", modifiers: .command)
             }
             CommandGroup(replacing: .saveItem) {
-                Button("Save…") { model.save() }
+                Button("Save…") { workspace.saveCurrentWithPanel() }
                     .keyboardShortcut("s", modifiers: .command)
             }
         }

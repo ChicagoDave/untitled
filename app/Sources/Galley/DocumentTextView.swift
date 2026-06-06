@@ -4,20 +4,21 @@
 //
 //  Purpose: The editing-surface host (ADR-0003) — a `NSViewRepresentable`
 //  wrapping the `InputController` (a TextKit 2 `NSTextView` subclass) inside a
-//  scroll view. The view renders from `DocumentModel` and writes edits back
-//  through it, so SwiftUI never holds the text; the model does.
+//  scroll view. The view renders from the current `WorkspaceDocument` buffer and
+//  writes edits back through it, so SwiftUI never holds the text; the buffer does.
 //  Public interface: `DocumentTextView`.
 //  Owner context: Galley — the macOS shell's AppKit/SwiftUI bridge.
 //
 
 import AppKit
 import SwiftUI
+import GalleyShell
 
-/// Hosts the editable TextKit 2 text view bound to a `DocumentModel`.
+/// Hosts the editable TextKit 2 text view bound to a `WorkspaceDocument` buffer.
 struct DocumentTextView: NSViewRepresentable {
 
-    /// The document model the editor reads from and writes to.
-    var model: DocumentModel
+    /// The document buffer the editor reads from and writes to.
+    var buffer: WorkspaceDocument
 
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
@@ -32,7 +33,7 @@ struct DocumentTextView: NSViewRepresentable {
         // the subclass inherits the initializer since all its stored properties
         // have defaults.
         let textView = InputController(usingTextLayoutManager: true)
-        textView.documentModel = model
+        textView.buffer = buffer
         textView.isEditable = true
         textView.isSelectable = true
         textView.isRichText = true
@@ -52,7 +53,7 @@ struct DocumentTextView: NSViewRepresentable {
 
         scrollView.documentView = textView
 
-        textView.renderFromModel(caret: EditorLayout.build(from: model.document).firstEditablePosition())
+        textView.renderFromModel(caret: EditorLayout.build(from: buffer.document).firstEditablePosition())
         return scrollView
     }
 

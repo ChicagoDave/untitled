@@ -141,7 +141,7 @@
 - **ADR-0004** (`0004-own-model-is-source-of-truth.md`) — model-as-truth: each open buffer's state lives in its `DocumentModel` (which wraps the core `Document`); the workspace container (`WorkspaceModel`) owns those models and must not duplicate or shadow their state. Any display derived from the workspace (window title, slot labels) is derived, not stored separately.
 - **ADR-0007** (`0007-plain-text-files-chapters-in-sidecar.md`) — persistence format: saving a buffer means writing both the prose file and the sidecar JSON; auto-save-on-switch must call through the existing `DocumentBundle`/`DocumentModel` save path — not a raw write — so the two-artifact invariant is maintained.
 - **ADR-0011** (`0011-editor-shell-separate-swiftpm-package.md`) — app-target structure: `GalleyShell` (pure Foundation + GalleyCore) is unit-testable headlessly; the `Galley` executable is the only target that needs a window server. Under fix (a) this means `WorkspaceModel` (AppKit-free container/state + load-persist) lives in `app/Sources/GalleyShell/` and is tested in the existing `GalleyShellTests` target; only the thin panel-runner and SwiftUI command glue (which import AppKit/SwiftUI) live in `app/Sources/Galley/`.
-- **session-20260605-2000-main.md** — most recent session summary: confirms Phases 5 and 6 (reference system, chapter templates) remain PENDING and are out of scope for the Build Step 3 track. Build Step 3 adds an AppKit-free workspace store (`WorkspaceModel`/`WorkspaceDocument`) to `GalleyShell` additively, but must not touch `GalleyCore` or the editing/reveal surfaces established in Phases 1–4.
+- **session-20260605-2000-main.md** — most recent session summary: confirms Phases 5 and 6 (reference system, chapter templates) remain PENDING and are explicitly out of scope for the Build Step 3 track; the Build Step 3 phases must not touch `GalleyCore`, `GalleyShell`, or the editing/reveal surfaces established in Phases 1–4.
 
 ---
 
@@ -155,7 +155,7 @@
 
 **Workspace container abstraction (ADR-0016 candidate)**: `WorkspaceModel` is an `@Observable` class in `GalleyShell` that owns `[WorkspaceDocument]` + `currentIndex: Int`. It is AppKit-free and headlessly testable. `Galley.swift` owns exactly one `WorkspaceModel`; `ContentView` receives it and derives `currentDocument`. The executable's `DocumentModel` (panel layer) wraps or bridges into `WorkspaceModel` for the panel-presentation path. This is a store — Boundary Statement required before editing; OWNER is the `GalleyShell` library (app-layer state), not the `Galley` executable.
 
-**Auto-save on switch**: When `switchTo(index:)` is called, the workspace calls `currentDocument.persist(to: fileURL)` if and only if `currentDocument.fileURL != nil` (i.e., the buffer has been saved at least once). Unsaved buffers are left untouched in memory.
+**Auto-save on switch**: When `switchTo(index:)` is called, the workspace calls `currentModel.save()` if and only if `currentModel.fileURL != nil` (i.e., the buffer has been saved at least once). Unsaved buffers are left untouched in memory.
 
 ---
 
@@ -179,7 +179,7 @@
 - **ADR-worthy**: `WorkspaceModel` container abstraction including the `WorkspaceDocument` split (ADR-0016 — note that the container lives in `GalleyShell`, not the executable); unsaved-New buffer policy (ADR-0015).
 - **Boundary Statement required**: Yes — `WorkspaceModel` and `WorkspaceDocument` live under the store/state pattern in `GalleyShell`. Produce the statement before editing. OWNER: `GalleyShell` library (app-layer state, not the `Galley` executable).
 - **Exit state**: `swift build` clean. Cmd-N appends a blank buffer and switches to it. Cmd-O appends the chosen project without replacing existing buffers. Switching between buffers auto-saves the outgoing buffer (if it has a URL). `WorkspaceModelTests` GREEN. Committed.
-- **Status**: COMPLETE — `WorkspaceDocument` + `WorkspaceModel` added to `GalleyShell` (AppKit-free, `@Observable @MainActor`); 13 headless behavioral tests in `GalleyShellTests` (suite now 20 GREEN, build clean 0 warnings). `DocumentModel` removed; replaced by `FilePanels` (the `@MainActor` NSOpenPanel/NSSavePanel runner) + a `WorkspaceModel` panel extension in the executable. Cmd-N/Cmd-O rewired in `Galley.swift`; auto-save-on-switch via `autosaveCurrentIfPersisted()` (fires only when `fileURL != nil`). **Deviation from the file estimate:** moving the per-buffer object into GalleyShell required rebinding every view that used `DocumentModel` (`ContentView`, `DocumentTextView`, `InputController`, `RevealPane`, `MetadataPanel`) to `WorkspaceDocument`, and adding the SwiftUI `metaBinding` bridge over the headless `setMetadata`. App launches and runs (smoke-checked). ADR-0015 (unsaved/last-buffer policy) and ADR-0016 (workspace store in GalleyShell) written. (session b8b0bd, 2026-06-05)
+- **Status**: CURRENT
 
 ---
 
@@ -197,4 +197,4 @@
   - `WorkspaceModel.close(index:)` (GalleyShell-side, headlessly testable) — DOES: removes the `WorkspaceDocument` at `index`; if it was the last buffer, replaces with a fresh blank `WorkspaceDocument`; switches `currentIndex` to the nearest neighbor (prefer `index - 1`, else `index`, clamped). REJECTS WHEN: if the closing `WorkspaceDocument` has content (`hasContent == true`) and `fileURL == nil`, emits a `.unsavedContent(WorkspaceDocument)` result that the executable-side caller uses to present a Save/Discard sheet before proceeding. The Save/Discard sheet itself lives in the `Galley` executable (AppKit/SwiftUI); `WorkspaceModel.close` never presents UI.
 - **ADR-worthy**: last-buffer-close policy recorded alongside ADR-0015.
 - **Exit state**: Cmd-W closes correctly; last-buffer is replaced by a blank; unsaved-content buffers prompt before close. Window menu lists buffers with checkmarks; Cmd-1..9 switches directly. All new tests GREEN. Committed.
-- **Status**: CURRENT
+- **Status**: PENDING

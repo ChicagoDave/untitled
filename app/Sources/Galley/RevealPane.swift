@@ -6,7 +6,7 @@
 //  `revealProjection` token stream as prose segments and addressable code chips,
 //  and doubles as the chapter-slicing surface (ADR-0005). In chapter-edit mode it
 //  exposes the chapter anchors so the writer can place, retitle, and remove
-//  boundary cuts; the edits flow through `DocumentModel` into the model.
+//  boundary cuts; the edits flow through `WorkspaceDocument` into the buffer.
 //  Public interface: `RevealPane`.
 //  Owner context: Galley — the macOS shell's SwiftUI view layer.
 //
@@ -18,7 +18,7 @@ import GalleyShell
 /// The reveal pane: a token-stream truth view plus a chapter-slicing editor.
 struct RevealPane: View {
 
-    @Bindable var model: DocumentModel
+    @Bindable var buffer: WorkspaceDocument
     @State private var chapterEditMode = false
 
     var body: some View {
@@ -34,7 +34,7 @@ struct RevealPane: View {
 
             ScrollView {
                 FlowLayout {
-                    ForEach(revealItems(from: model.document.revealProjection())) { item in
+                    ForEach(revealItems(from: buffer.document.revealProjection())) { item in
                         RevealItemView(item: item)
                     }
                 }
@@ -43,7 +43,7 @@ struct RevealPane: View {
 
             if chapterEditMode {
                 Divider()
-                ChapterEditor(model: model)
+                ChapterEditor(buffer: buffer)
             }
         }
         .padding(12)
@@ -87,7 +87,7 @@ private struct RevealItemView: View {
 /// boundary cut and a field to title it (§6).
 private struct ChapterEditor: View {
 
-    @Bindable var model: DocumentModel
+    @Bindable var buffer: WorkspaceDocument
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -97,8 +97,8 @@ private struct ChapterEditor: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(chapterAnchors(of: model.document)) { anchor in
-                        ChapterAnchorRow(model: model, anchor: anchor)
+                    ForEach(chapterAnchors(of: buffer.document)) { anchor in
+                        ChapterAnchorRow(buffer: buffer, anchor: anchor)
                     }
                 }
             }
@@ -110,7 +110,7 @@ private struct ChapterEditor: View {
 /// A single chapter-anchor row: cut toggle, optional title field, block preview.
 private struct ChapterAnchorRow: View {
 
-    @Bindable var model: DocumentModel
+    @Bindable var buffer: WorkspaceDocument
     let anchor: ChapterAnchor
 
     var body: some View {
@@ -118,8 +118,8 @@ private struct ChapterAnchorRow: View {
             Toggle("", isOn: Binding(
                 get: { anchor.hasCut },
                 set: { isOn in
-                    if isOn { model.placeCut(atBlock: anchor.id) }
-                    else { model.removeCut(atBlock: anchor.id) }
+                    if isOn { buffer.placeCut(atBlock: anchor.id) }
+                    else { buffer.removeCut(atBlock: anchor.id) }
                 }
             ))
             .labelsHidden()
@@ -128,7 +128,7 @@ private struct ChapterAnchorRow: View {
             if anchor.hasCut {
                 TextField("title", text: Binding(
                     get: { anchor.title ?? "" },
-                    set: { model.setCutTitle(atBlock: anchor.id, to: $0) }
+                    set: { buffer.setCutTitle(atBlock: anchor.id, to: $0) }
                 ))
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 110)

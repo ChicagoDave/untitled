@@ -5,10 +5,11 @@
 // and never modifies it to accept UI types — dependencies flow inward only.
 //
 // Targets:
-//   - `GalleyShell` (library): pure Foundation + GalleyCore file-pair I/O —
-//     no AppKit, fully testable headlessly.
-//   - `Galley` (executable): the `@main` SwiftUI/AppKit shell.
-//   - `GalleyShellTests` (test): real-path round-trip tests for the file layer.
+//   - `GalleyShell` (library): Foundation + GalleyCore — the `.galley` file-pair
+//     I/O plus the AppKit-free workspace store (`WorkspaceModel`/
+//     `WorkspaceDocument`, ADR-0011 fix (a)). No AppKit, fully testable headlessly.
+//   - `Galley` (executable): the `@main` SwiftUI/AppKit shell, incl. file panels.
+//   - `GalleyShellTests` (test): real-path tests for the file layer and workspace.
 
 import PackageDescription
 

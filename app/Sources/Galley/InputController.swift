@@ -5,15 +5,17 @@
 //  Purpose: The typing-simplicity input layer (§8) — an `NSTextView` subclass that
 //  intercepts the primitive editing actions (insert, newline, backspace) and the
 //  italic shortcut, translates each into a model-coordinate `InputEvent` against
-//  the current caret, applies it through `DocumentModel` (the pure reducer), then
-//  re-derives the whole rendered string from the model. The model is the single
-//  source of truth (ADR-0004); the text storage is never edited directly.
-//  Public interface: `InputController` (its `documentModel` and `renderFromModel`).
+//  the current caret, applies it through the current `WorkspaceDocument` buffer
+//  (the pure reducer), then re-derives the whole rendered string from the model.
+//  The model is the single source of truth (ADR-0004); the text storage is never
+//  edited directly.
+//  Public interface: `InputController` (its `buffer` and `renderFromModel`).
 //  Owner context: Galley — the macOS shell's editing layer (ADR-0003).
 //
 
 import AppKit
 import GalleyCore
+import GalleyShell
 
 /// A read-from-model / write-through-reducer text view.
 ///
@@ -23,8 +25,8 @@ import GalleyCore
 /// can never drift from the truth.
 final class InputController: NSTextView {
 
-    /// The document being edited. Weak: the SwiftUI `@State` owns it.
-    weak var documentModel: DocumentModel?
+    /// The document buffer being edited. Weak: the workspace store owns it.
+    weak var buffer: WorkspaceDocument?
 
     /// The layout from the most recent render — the caret ↔ model map.
     private var layout = EditorLayout(attributedString: NSAttributedString(), segments: [])
@@ -37,14 +39,14 @@ final class InputController: NSTextView {
 
     override func insertText(_ string: Any, replacementRange: NSRange) {
         let text = (string as? String) ?? (string as? NSAttributedString)?.string ?? ""
-        guard let model = documentModel, let caret = caretModelPosition(), !text.isEmpty else { return }
+        guard let model = buffer, let caret = caretModelPosition(), !text.isEmpty else { return }
 
         model.apply(.insertText(text, blockID: caret.blockID, offset: caret.offset))
         renderFromModel(caret: (caret.blockID, caret.offset + text.count))
     }
 
     override func insertNewline(_ sender: Any?) {
-        guard let model = documentModel, let caret = caretModelPosition() else { return }
+        guard let model = buffer, let caret = caretModelPosition() else { return }
 
         model.apply(.splitParagraph(blockID: caret.blockID, offset: caret.offset))
 
@@ -58,7 +60,7 @@ final class InputController: NSTextView {
     }
 
     override func deleteBackward(_ sender: Any?) {
-        guard let model = documentModel, let caret = caretModelPosition() else { return }
+        guard let model = buffer, let caret = caretModelPosition() else { return }
 
         if caret.offset > 0 {
             model.apply(.deleteBackward(blockID: caret.blockID, offset: caret.offset))
@@ -96,7 +98,7 @@ final class InputController: NSTextView {
     /// Toggles italic over the current selection (Cmd-I, §8). A collapsed caret is
     /// a no-op — there is nothing to mark.
     func toggleItalicAtSelection() {
-        guard let model = documentModel else { return }
+        guard let model = buffer else { return }
         let selection = selectedRange()
         guard let start = layout.modelPosition(forCharacterAt: selection.location),
               let end = layout.modelPosition(forCharacterAt: selection.location + selection.length),
@@ -108,7 +110,7 @@ final class InputController: NSTextView {
 
     /// Converts the paragraph at the caret to/from a verse set-piece (§8).
     @objc func toggleVerse(_ sender: Any?) {
-        guard let model = documentModel, let caret = caretModelPosition() else { return }
+        guard let model = buffer, let caret = caretModelPosition() else { return }
         model.apply(.toggleSetPiece(blockID: caret.blockID, kind: .verse))
         renderFromModel(caret: (caret.blockID, 0))
     }
@@ -135,7 +137,7 @@ final class InputController: NSTextView {
     /// Re-renders from the model if it changed outside our own editing (e.g. a
     /// file was opened), placing the caret at the document start.
     func syncFromModelIfNeeded() {
-        guard let model = documentModel else { return }
+        guard let model = buffer else { return }
         if lastRenderedDocument != model.document {
             renderFromModel(caret: layout.firstEditablePosition() ?? EditorLayout.build(from: model.document).firstEditablePosition())
         }
@@ -150,7 +152,7 @@ final class InputController: NSTextView {
     /// Rebuilds the layout + attributed string from the model and pushes it into
     /// the TextKit 2 content storage. Does not touch the selection.
     private func applyRender() {
-        guard let model = documentModel else { return }
+        guard let model = buffer else { return }
         let newLayout = EditorLayout.build(from: model.document)
         layout = newLayout
         lastRenderedDocument = model.document

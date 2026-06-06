@@ -4,18 +4,20 @@
 //
 //  Purpose: The submission-fields side panel — a form over the project's fixed
 //  metadata (title-page and cover-letter data every submission needs). Edits bind
-//  straight into `Document.meta` through `DocumentModel` and persist on save.
+//  into `Document.meta` through the current `WorkspaceDocument` buffer and persist
+//  on save.
 //  Public interface: `MetadataPanel`.
 //  Owner context: Galley — the macOS shell's SwiftUI view layer.
 //
 
 import SwiftUI
 import GalleyCore
+import GalleyShell
 
 /// The submission-fields editor: a grouped form bound to the document metadata.
 struct MetadataPanel: View {
 
-    @Bindable var model: DocumentModel
+    @Bindable var buffer: WorkspaceDocument
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -68,15 +70,33 @@ struct MetadataPanel: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.caption).foregroundStyle(.secondary)
             if multiline {
-                TextField(label, text: model.metaBinding(keyPath), axis: .vertical)
+                TextField(label, text: buffer.metaBinding(keyPath), axis: .vertical)
                     .lineLimit(2...5)
                     .textFieldStyle(.roundedBorder)
                     .labelsHidden()
             } else {
-                TextField(label, text: model.metaBinding(keyPath))
+                TextField(label, text: buffer.metaBinding(keyPath))
                     .textFieldStyle(.roundedBorder)
                     .labelsHidden()
             }
         }
+    }
+}
+
+/// SwiftUI bridge for editing a buffer's metadata fields.
+///
+/// `WorkspaceDocument` is headless (no SwiftUI), so the two-way `Binding` the form
+/// needs is built here in the executable: reads come straight off the document,
+/// writes route through the buffer's controlled `setMetadata` mutator.
+extension WorkspaceDocument {
+
+    /// A two-way binding to a single string metadata field.
+    /// - Parameter keyPath: the metadata field to bind.
+    /// - Returns: a `Binding` whose setter persists into `document.meta`.
+    func metaBinding(_ keyPath: WritableKeyPath<Metadata, String>) -> Binding<String> {
+        Binding(
+            get: { self.document.meta[keyPath: keyPath] },
+            set: { self.setMetadata(keyPath, to: $0) }
+        )
     }
 }
