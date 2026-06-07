@@ -123,6 +123,65 @@ struct TemplateIndexTests {
         #expect(TemplateIndex.load(directory: missing).entries.isEmpty)
     }
 
+    // MARK: merged — layered library (built-in / user / story), LT1
+
+    @Test func mergedWithNoDirectoriesYieldsTheBuiltInToolkit() {
+        let index = TemplateIndex.merged(builtIns: BuiltInTemplates.all, userDirectory: nil, storyDirectory: nil)
+        // Every built-in is present even with no project and no user folder.
+        for builtin in BuiltInTemplates.all {
+            #expect(index.template(named: builtin.name) != nil)
+        }
+        #expect(index.template(named: "Epigraph")?.overrides == [.alignment(.center), .smallCaps])
+    }
+
+    @Test func mergedAddsUserDirectoryTemplatesOnTopOfBuiltIns() throws {
+        let userDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: userDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: userDir) }
+        try "override: align:center\n\nMy salutation.\n".write(
+            to: userDir.appendingPathComponent("salutation.galley-template"), atomically: true, encoding: .utf8)
+
+        let index = TemplateIndex.merged(builtIns: BuiltInTemplates.all, userDirectory: userDir, storyDirectory: nil)
+
+        #expect(index.template(named: "Salutation")?.body == "My salutation.")
+        #expect(index.template(named: "Epigraph") != nil)   // built-ins still present
+    }
+
+    @Test func userTemplateOverridesBuiltInOfSameName() throws {
+        let userDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: userDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: userDir) }
+        // A user "Epigraph" with a different override set must win over the built-in.
+        try "override: align:trailing\n\nMine.\n".write(
+            to: userDir.appendingPathComponent("epigraph.galley-template"), atomically: true, encoding: .utf8)
+
+        let index = TemplateIndex.merged(builtIns: BuiltInTemplates.all, userDirectory: userDir, storyDirectory: nil)
+
+        #expect(index.template(named: "Epigraph")?.overrides == [.alignment(.trailing)])
+        #expect(index.template(named: "Epigraph")?.body == "Mine.")
+    }
+
+    @Test func storyTemplateOverridesUserOnSameName() throws {
+        let userDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let storyDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: userDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: storyDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: userDir)
+            try? FileManager.default.removeItem(at: storyDir)
+        }
+        try "override: smallCaps\n\nUser dateline.\n".write(
+            to: userDir.appendingPathComponent("dateline.galley-template"), atomically: true, encoding: .utf8)
+        try "override: align:center\n\nStory dateline.\n".write(
+            to: storyDir.appendingPathComponent("dateline.galley-template"), atomically: true, encoding: .utf8)
+
+        let index = TemplateIndex.merged(builtIns: BuiltInTemplates.all, userDirectory: userDir, storyDirectory: storyDir)
+
+        // story > user > built-in
+        #expect(index.template(named: "Dateline")?.body == "Story dateline.")
+        #expect(index.template(named: "Dateline")?.overrides == [.alignment(.center)])
+    }
+
     // MARK: real-path — the shipped GrayHarbor example templates
 
     @Test func loadReadsTheGrayHarborExampleTemplates() throws {

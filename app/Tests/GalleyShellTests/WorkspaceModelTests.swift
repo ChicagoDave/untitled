@@ -148,6 +148,54 @@ struct WorkspaceModelTests {
         #expect(ws.current.snippetIndex.snippet(named: "Dateline")?.body == "LONDON —")
     }
 
+    /// open(url:) DOES populate the buffer's template index from the package's
+    /// `templates/` directory — the source for the Cmd-; Block Palette (BP2). This is
+    /// the exact open→reloadIndexes→templateIndex chain the palette reads from.
+    @Test func openLoadsTemplateIndexFromPackageTemplatesDirectory() throws {
+        let url = try writeBundle(makeDocument(text: "Prose."))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let templatesDir = url.appendingPathComponent("templates", isDirectory: true)
+        try FileManager.default.createDirectory(at: templatesDir, withIntermediateDirectories: true)
+        // A uniquely-named story template, so it is unambiguously the story layer
+        // (built-ins are also merged in — LT1, ADR-0025).
+        try "override: smallCaps\n\nHARBOR DISPATCH —".write(
+            to: templatesDir.appendingPathComponent("harbor-dispatch.galley-template"), atomically: true, encoding: .utf8)
+
+        let ws = WorkspaceModel()
+        #expect(ws.open(url: url))
+
+        #expect(ws.current.templateIndex.template(named: "Harbor Dispatch")?.body == "HARBOR DISPATCH —")
+        #expect(ws.current.templateIndex.template(named: "Epigraph") != nil)   // built-ins merged alongside
+    }
+
+    /// A package with no `templates/` directory still offers the built-in toolkit —
+    /// the story layer is absent but built-ins are always merged in (LT1, ADR-0025).
+    @Test func openWithoutTemplatesDirectoryStillOffersBuiltInTemplates() throws {
+        let url = try writeBundle(makeDocument(text: "Prose."))
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let ws = WorkspaceModel()
+        #expect(ws.open(url: url))
+
+        // Built-in names resolve regardless of any user-folder content on this machine
+        // (a user override changes a template's overrides, never its presence).
+        for builtin in BuiltInTemplates.all {
+            #expect(ws.current.templateIndex.template(named: builtin.name) != nil)
+        }
+    }
+
+    /// A brand-new, never-saved buffer (no fileURL) still has the built-in template
+    /// toolkit — the fix for "a new project's palette is empty" (LT1, ADR-0025).
+    @Test func newBufferHasBuiltInTemplatesWithoutAnyProjectOnDisk() {
+        let ws = WorkspaceModel()   // starts with one blank, unsaved buffer
+
+        #expect(ws.current.fileURL == nil)
+        for builtin in BuiltInTemplates.all {
+            #expect(ws.current.templateIndex.template(named: builtin.name) != nil)
+        }
+    }
+
     // MARK: switchTo(index:) DOES
 
     /// switchTo(index:) DOES set the current index to a valid slot.

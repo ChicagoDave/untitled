@@ -116,6 +116,55 @@ public struct TemplateIndex: Equatable, Sendable {
         self.entries = entries
     }
 
+    /// The user-level global template directory — the cross-project layer (LT1,
+    /// ADR-0025): `~/Library/Application Support/Galley/templates/`. Plain
+    /// `.galley-template` files the writer edits in any text editor, available to
+    /// every project. `nil` only if the OS reports no application-support directory.
+    public static var userTemplateDirectory: URL? {
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)
+            .first?
+            .appendingPathComponent("Galley/templates", isDirectory: true)
+    }
+
+    /// Builds a merged index from the three layers (ADR-0025): built-in values,
+    /// the user-level directory, and the per-project `templates/` directory.
+    ///
+    /// Layers overlay by case-insensitive name with the most-specific winning —
+    /// **story > user > built-in** — so a project may override a built-in or user
+    /// template, and a user template may override a built-in. Order is built-ins
+    /// first, then first-seen user, then first-seen story. Any layer may be empty: a
+    /// `nil` or missing directory contributes nothing, and a new project (no story
+    /// directory) still gets the built-in and user toolkit.
+    ///
+    /// - Parameters:
+    ///   - builtIns: the always-present in-code templates (normally `BuiltInTemplates.all`).
+    ///   - userDirectory: the user-level global templates directory, or `nil`.
+    ///   - storyDirectory: the per-project `templates/` directory, or `nil` (unsaved buffer).
+    /// - Returns: the merged index.
+    public static func merged(
+        builtIns: [BlockTemplate],
+        userDirectory: URL?,
+        storyDirectory: URL?
+    ) -> TemplateIndex {
+        var byName: [String: BlockTemplate] = [:]
+        var order: [String] = []
+
+        func overlay(_ templates: [BlockTemplate]) {
+            for template in templates {
+                let key = template.name.lowercased()
+                if byName[key] == nil { order.append(key) }
+                byName[key] = template               // a later layer wins on collision
+            }
+        }
+
+        overlay(builtIns)
+        if let userDirectory { overlay(load(directory: userDirectory).entries) }
+        if let storyDirectory { overlay(load(directory: storyDirectory).entries) }
+
+        return TemplateIndex(entries: order.map { byName[$0]! })
+    }
+
     /// Loads a template index from a directory of `*.galley-template` files.
     ///
     /// Every parseable `.galley-template` file becomes one template. A missing or

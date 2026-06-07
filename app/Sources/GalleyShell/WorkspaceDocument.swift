@@ -69,6 +69,9 @@ public final class WorkspaceDocument {
         self.document = document
         self.fileURL = fileURL
         self.status = status
+        // A fresh buffer still gets the built-in (and user-level) template toolkit,
+        // so the Block Palette is never empty in a new project (LT1, ADR-0025).
+        reloadIndexes()
     }
 
     /// A document with a single empty paragraph — the editable starting point, so
@@ -112,22 +115,31 @@ public final class WorkspaceDocument {
         status = "Opened \(url.lastPathComponent) — \(loaded.blocks.count) block(s)."
     }
 
-    /// Rebuilds `bibleIndex`, `snippetIndex`, and `templateIndex` from the package's
-    /// `bible/`, `snippets/`, and `templates/` directories (§9, BP1).
+    /// Rebuilds the reference indexes (§9, BP1, LT1).
     ///
-    /// Called on load and after the first save; safe to call any time the writer may
-    /// have added or edited reference files. A buffer with no `fileURL`, or a package
-    /// missing a directory, yields the corresponding empty index.
+    /// The **template index is layered** (ADR-0025): built-in templates + the
+    /// user-level global directory are always merged in, plus the per-project
+    /// `templates/` directory when this buffer is saved — so even a brand-new unsaved
+    /// buffer offers the built-in (and user) toolkit. **Bible and snippets stay
+    /// project-scoped** (this novel's data, ADR-0020): they load only from the
+    /// package and are empty for a never-saved buffer.
+    ///
+    /// Called on init, load, and after save; safe to call any time the writer may
+    /// have added or edited reference files.
     public func reloadIndexes() {
+        templateIndex = TemplateIndex.merged(
+            builtIns: BuiltInTemplates.all,
+            userDirectory: TemplateIndex.userTemplateDirectory,
+            storyDirectory: fileURL?.appendingPathComponent("templates", isDirectory: true)
+        )
+
         guard let url = fileURL else {
             bibleIndex = BibleIndex()
             snippetIndex = SnippetIndex()
-            templateIndex = TemplateIndex()
             return
         }
         bibleIndex = BibleIndex.load(directory: url.appendingPathComponent("bible", isDirectory: true))
         snippetIndex = SnippetIndex.load(directory: url.appendingPathComponent("snippets", isDirectory: true))
-        templateIndex = TemplateIndex.load(directory: url.appendingPathComponent("templates", isDirectory: true))
     }
 
     /// Writes this buffer to `url` via `DocumentBundle`, recording `fileURL` and
