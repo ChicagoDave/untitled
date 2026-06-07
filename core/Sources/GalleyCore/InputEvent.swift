@@ -65,4 +65,15 @@ public enum InputEvent: Equatable, Sendable {
     /// is edited inline as a real, keyboard-reachable segment, so each keystroke is
     /// one of these events against the figure's block. `imageRef` is unaffected.
     case setFigureCaption(blockID: BlockID, caption: String)
+
+    /// Delete a whole block by ID — the Reveal Codes surface deleting an atomic
+    /// `[SceneBreak]` or `[figure]` code chip (LT5-2, ADR-0034). Relocates any cut
+    /// anchored to the block (ADR-0010); a no-op on an unknown or only block.
+    case deleteBlock(blockID: BlockID)
+
+    /// Remove the single presentation override at `index` on a block — the Reveal
+    /// Codes surface deleting one override chip (`[center]`, `[smallCaps]`, …)
+    /// (LT5-2, ADR-0034). Unlike `clearOverrides` (which removes all), this targets
+    /// one; a no-op on an unknown block or out-of-range index.
+    case clearOverride(blockID: BlockID, index: Int)
 }

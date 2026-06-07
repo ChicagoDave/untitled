@@ -44,6 +44,10 @@ public func applyInput(_ event: InputEvent, to doc: Document) -> Document {
         clearOverrides(blockID: blockID, in: &doc)
     case let .setFigureCaption(blockID, caption):
         setFigureCaption(blockID: blockID, caption: caption, in: &doc)
+    case let .deleteBlock(blockID):
+        deleteBlock(blockID: blockID, in: &doc)
+    case let .clearOverride(blockID, index):
+        clearOverride(blockID: blockID, index: index, in: &doc)
     }
     return doc
 }
@@ -125,6 +129,26 @@ private func setFigureCaption(blockID: BlockID, caption: String, in doc: inout D
     guard let i = doc.blocks.firstIndex(where: { $0.id == blockID }),
           case .figure(let imageRef, _) = doc.blocks[i].content else { return }
     doc.blocks[i].content = .figure(imageRef: imageRef, caption: caption)
+}
+
+// MARK: - Delete block / override (Reveal Codes surface, LT5-2, ADR-0034)
+
+/// Deletes a whole block by ID — a reveal `[SceneBreak]`/`[figure]` chip deletion.
+/// Delegates to `Document.deleteBlock` so any anchored cut relocates (ADR-0010). A
+/// no-op on an unknown block, and a no-op when it is the only block, so the document
+/// always keeps a block to place the caret in (the reducer's total contract).
+private func deleteBlock(blockID: BlockID, in doc: inout Document) {
+    guard doc.blocks.count > 1 else { return }
+    try? doc.deleteBlock(id: blockID)
+}
+
+/// Removes the single presentation override at `index` on a block — a reveal override
+/// chip deletion. A no-op on an unknown block or an out-of-range index, so a stale
+/// chip event can never crash editing (the reducer's total contract).
+private func clearOverride(blockID: BlockID, index: Int, in doc: inout Document) {
+    guard let i = doc.blocks.firstIndex(where: { $0.id == blockID }),
+          doc.blocks[i].overrides.indices.contains(index) else { return }
+    doc.blocks[i].overrides.remove(at: index)
 }
 
 // MARK: - Delete

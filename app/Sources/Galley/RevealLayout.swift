@@ -34,6 +34,9 @@ struct RevealLayout {
         let editable: Bool
         /// Whether this piece is an atomic code chip (for step-over navigation).
         let isCode: Bool
+        /// The addressable identity of a code chip, for the code→event mapping
+        /// (LT5-2, ADR-0034); `nil` for text pieces.
+        let codeID: CodeID?
         /// The piece's text, for Character ↔ UTF-16 offset conversion.
         let text: String
     }
@@ -65,15 +68,15 @@ struct RevealLayout {
                 segments.append(Segment(
                     utf16Range: NSRange(location: start, length: out.length - start),
                     blockID: seg.blockID, modelOffset: seg.offset, editable: seg.editable,
-                    isCode: false, text: string
+                    isCode: false, codeID: nil, text: string
                 ))
-            case .code(let label, _):
+            case .code(let label, let id):
                 let chip = "[\(label)]"
                 out.append(NSAttributedString(string: chip, attributes: Self.codeAttributes))
                 segments.append(Segment(
                     utf16Range: NSRange(location: start, length: out.length - start),
                     blockID: seg.blockID, modelOffset: nil, editable: false,
-                    isCode: true, text: chip
+                    isCode: true, codeID: id, text: chip
                 ))
             }
         }
@@ -161,5 +164,17 @@ struct RevealLayout {
             let upper = lower + segment.utf16Range.length
             return position > lower && position < upper   // strictly inside the chip
         }
+    }
+
+    /// The code chip immediately *before* `position` (its trailing edge is at
+    /// `position`) — the chip a Backspace at `position` deletes (LT5-2, ADR-0034).
+    func codeEndingAt(_ position: Int) -> Segment? {
+        segments.first { $0.isCode && $0.utf16Range.location + $0.utf16Range.length == position }
+    }
+
+    /// The code chip immediately *after* `position` (its leading edge is at
+    /// `position`) — the chip a forward Delete at `position` deletes (LT5-2).
+    func codeStartingAt(_ position: Int) -> Segment? {
+        segments.first { $0.isCode && $0.utf16Range.location == position }
     }
 }
