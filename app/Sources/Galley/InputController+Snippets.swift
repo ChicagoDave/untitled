@@ -96,7 +96,7 @@ extension InputController {
         // Remove the "@query" token.
         var offset = caret.offset
         for _ in 0..<tokenLength {
-            buffer.apply(.deleteBackward(blockID: session.blockID, offset: offset))
+            applyEdit(.deleteBackward(blockID: session.blockID, offset: offset))
             offset -= 1
         }
 
@@ -104,16 +104,16 @@ extension InputController {
         let lines = snippet.body.components(separatedBy: "\n")
         var currentBlock = session.blockID
         var currentOffset = session.anchorOffset
-        buffer.apply(.insertText(lines[0], blockID: currentBlock, offset: currentOffset))
+        applyEdit(.insertText(lines[0], blockID: currentBlock, offset: currentOffset))
         currentOffset += lines[0].count
 
         for line in lines.dropFirst() {
-            buffer.apply(.splitParagraph(blockID: currentBlock, offset: currentOffset))
+            applyEdit(.splitParagraph(blockID: currentBlock, offset: currentOffset))
             let doc = buffer.document
             guard let index = doc.blocks.firstIndex(where: { $0.id == currentBlock }),
                   index + 1 < doc.blocks.count else { break }
             currentBlock = doc.blocks[index + 1].id
-            buffer.apply(.insertText(line, blockID: currentBlock, offset: 0))
+            applyEdit(.insertText(line, blockID: currentBlock, offset: 0))
             currentOffset = line.count
         }
 

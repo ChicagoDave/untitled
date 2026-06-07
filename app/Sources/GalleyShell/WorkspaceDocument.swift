@@ -34,13 +34,15 @@ public final class WorkspaceDocument {
     /// `apply`, `setMetadata`, and the chapter-overlay methods below.
     public private(set) var document: Document
 
-    /// Pre-edit document snapshots for undo, oldest first. Each editing mutator
-    /// pushes the prior document here before changing it; `undo()` pops the top.
-    private var undoStack: [Document] = []
+    /// Pre-edit snapshots for undo, oldest first. Each entry pairs the prior document
+    /// with the caret as it was *before* the edit, so undo restores both (ADR-0031).
+    /// Each editing mutator pushes here before changing `document`; `undo()` pops the top.
+    private var undoStack: [(document: Document, caret: Caret?)] = []
 
-    /// Document snapshots redo can restore, newest-undone last. Cleared by any new
-    /// edit, so the timeline never forks (standard undo semantics).
-    private var redoStack: [Document] = []
+    /// Snapshots redo can restore, newest-undone last — each with the caret as it was
+    /// at undo time (the post-edit caret), so redo lands the caret after the re-applied
+    /// change. Cleared by any new edit, so the timeline never forks (standard undo).
+    private var redoStack: [(document: Document, caret: Caret?)] = []
 
     /// The deepest the undo history grows before the oldest snapshot is dropped.
     private static let undoLimit = 500
@@ -222,40 +224,60 @@ public final class WorkspaceDocument {
     /// Whether an undone state can be re-applied.
     public var canRedo: Bool { !redoStack.isEmpty }
 
-    /// Records the current document as an undo checkpoint before an edit, and clears
-    /// the redo timeline (a new edit forks off any undone future). Every editing
-    /// mutator calls this first; load/persist do not (opening a file is not an edit).
-    private func checkpoint() {
-        undoStack.append(document)
+    /// Records the current document and the pre-edit `caret` as an undo checkpoint
+    /// before an edit, and clears the redo timeline (a new edit forks off any undone
+    /// future). Every editing mutator calls this first; load/persist do not (opening a
+    /// file is not an edit).
+    ///
+    /// - Parameter caret: the caret as it was before the edit, in model coordinates,
+    ///   so undo restores it exactly (ADR-0031). `nil` when the caller has no caret.
+    private func checkpoint(_ caret: Caret?) {
+        undoStack.append((document, caret))
         if undoStack.count > WorkspaceDocument.undoLimit {
             undoStack.removeFirst(undoStack.count - WorkspaceDocument.undoLimit)
         }
         redoStack.removeAll(keepingCapacity: true)
     }
 
-    /// Restores the most recent pre-edit document (Cmd-Z). The current document is
-    /// pushed onto the redo stack so it can be re-applied. No-op when nothing to undo.
-    public func undo() {
-        guard let previous = undoStack.popLast() else { return }
-        redoStack.append(document)
-        document = previous
+    /// Restores the most recent pre-edit document and its caret (Cmd-Z). The current
+    /// document and `currentCaret` are pushed onto the redo stack so they can be
+    /// re-applied. No-op (returns `nil`) when there is nothing to undo.
+    ///
+    /// - Parameter currentCaret: the caret as it is now, recorded so a subsequent redo
+    ///   lands the caret after the re-applied change.
+    /// - Returns: the stored pre-edit caret to restore, or `nil`.
+    @discardableResult
+    public func undo(currentCaret: Caret? = nil) -> Caret? {
+        guard let entry = undoStack.popLast() else { return nil }
+        redoStack.append((document, currentCaret))
+        document = entry.document
+        return entry.caret
     }
 
-    /// Re-applies the most recently undone document (Cmd-Shift-Z). No-op when there
-    /// is nothing to redo.
-    public func redo() {
-        guard let next = redoStack.popLast() else { return }
-        undoStack.append(document)
-        document = next
+    /// Re-applies the most recently undone document and its caret (Cmd-Shift-Z). No-op
+    /// (returns `nil`) when there is nothing to redo.
+    ///
+    /// - Parameter currentCaret: the caret as it is now, recorded so a subsequent undo
+    ///   restores it.
+    /// - Returns: the stored caret to restore (lands after the re-applied change), or `nil`.
+    @discardableResult
+    public func redo(currentCaret: Caret? = nil) -> Caret? {
+        guard let entry = redoStack.popLast() else { return nil }
+        undoStack.append((document, currentCaret))
+        document = entry.document
+        return entry.caret
     }
 
     /// Applies one editing intent to the document via the pure core reducer (§8),
     /// keeping the model the single source of truth (ADR-0004). Checkpoints the prior
-    /// state for undo.
+    /// state and the pre-edit caret for undo.
     ///
-    /// - Parameter event: the model-coordinate editing intent from the input layer.
-    public func apply(_ event: InputEvent) {
-        checkpoint()
+    /// - Parameters:
+    ///   - event: the model-coordinate editing intent from the input layer.
+    ///   - caret: the caret as it was before this edit (for undo restoration); `nil`
+    ///     when the caller has no caret.
+    public func apply(_ event: InputEvent, caret: Caret? = nil) {
+        checkpoint(caret)
         document = applyInput(event, to: document)
     }
 
@@ -267,35 +289,42 @@ public final class WorkspaceDocument {
     /// - Parameters:
     ///   - keyPath: the metadata field to write.
     ///   - value: the new value.
-    public func setMetadata(_ keyPath: WritableKeyPath<Metadata, String>, to value: String) {
-        checkpoint()
+    public func setMetadata(_ keyPath: WritableKeyPath<Metadata, String>, to value: String, caret: Caret? = nil) {
+        checkpoint(caret)
         document.meta[keyPath: keyPath] = value
     }
 
     // MARK: Chapter overlay (reveal-pane chapter-slicing, §6)
 
-    /// Places a boundary chapter cut at a block.
-    public func placeCut(atBlock blockID: BlockID) { checkpoint(); document.placeChapterCut(atBlock: blockID) }
+    /// Places a boundary chapter cut at a block. Undo lands the caret at the affected
+    /// block by default (callers from a non-text surface have no caret to thread).
+    public func placeCut(atBlock blockID: BlockID, caret: Caret? = nil) {
+        checkpoint(caret ?? Caret(blockID: blockID, offset: 0))
+        document.placeChapterCut(atBlock: blockID)
+    }
 
     /// Removes the boundary chapter cut at a block.
-    public func removeCut(atBlock blockID: BlockID) { checkpoint(); document.removeChapterCut(atBlock: blockID) }
+    public func removeCut(atBlock blockID: BlockID, caret: Caret? = nil) {
+        checkpoint(caret ?? Caret(blockID: blockID, offset: 0))
+        document.removeChapterCut(atBlock: blockID)
+    }
 
     /// Moves a boundary chapter cut from one block to another.
-    public func moveCut(fromBlock source: BlockID, toBlock target: BlockID) {
-        checkpoint()
+    public func moveCut(fromBlock source: BlockID, toBlock target: BlockID, caret: Caret? = nil) {
+        checkpoint(caret ?? Caret(blockID: target, offset: 0))
         document.moveChapterCut(fromBlock: source, toBlock: target)
     }
 
     /// Sets (or clears) the title of the boundary chapter cut at a block.
-    public func setCutTitle(atBlock blockID: BlockID, to title: String?) {
-        checkpoint()
+    public func setCutTitle(atBlock blockID: BlockID, to title: String?, caret: Caret? = nil) {
+        checkpoint(caret ?? Caret(blockID: blockID, offset: 0))
         document.setChapterCutTitle(atBlock: blockID, to: title)
     }
 
     /// Sets the caption of the figure block at `blockID` (LT4-2, ADR-0028 Option A).
     /// Routes through the pure reducer so figure-block invariants stay in the core; a
     /// no-op on an unknown or non-figure block (the reducer's total contract).
-    public func setFigureCaption(atBlock blockID: BlockID, to caption: String) {
-        apply(.setFigureCaption(blockID: blockID, caption: caption))
+    public func setFigureCaption(atBlock blockID: BlockID, to caption: String, caret: Caret? = nil) {
+        apply(.setFigureCaption(blockID: blockID, caption: caption), caret: caret ?? Caret(blockID: blockID, offset: 0))
     }
 }

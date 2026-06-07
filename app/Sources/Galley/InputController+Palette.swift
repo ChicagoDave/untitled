@@ -95,7 +95,7 @@ extension InputController {
         }
 
         let action = paletteItems[paletteSelection].action
-        buffer.apply(event(for: action, after: anchor))
+        applyEdit(event(for: action, after: anchor))
         endPalette()
 
         // The seeded block is the one now sitting immediately after the anchor.

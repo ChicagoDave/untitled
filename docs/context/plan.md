@@ -569,7 +569,7 @@ No seeding or copying between layers. Each layer loads independently; the palett
   - `performUndo`/`performRedo` in `InputController+Title.swift` place the returned caret via `restoreCaret`; **`changeSite` and `changeOffset` are deleted**.
   - `WorkspaceUndoTests` updated: every case asserts the restored *caret* alongside the restored document (turns the document-only YELLOW into a `(document, caret)` GREEN).
 - **Exit state**: `swift build` clean; `WorkspaceUndoTests` GREEN asserting restored carets; no document-diffing caret code remains. Manual smoke: edit at two sites, undo — caret lands at each edit site in turn. Committed.
-- **Status**: PENDING
+- **Status**: COMPLETE — Named `Caret` value (model-coordinate `start`/`end`, collapsed convenience) added in `GalleyShell`. `WorkspaceDocument` undo/redo stacks now hold `(Document, Caret?)`; `checkpoint(_:)` records the pre-edit caret, `undo(currentCaret:)`/`redo(currentCaret:)` push the current caret onto the opposite stack and return the stored one (symmetric — undo lands the pre-edit caret, redo lands the post-edit caret captured at undo time). `apply`/`setMetadata`/`placeCut`/`removeCut`/`moveCut`/`setCutTitle`/`setFigureCaption` thread the caret (cut mutators default to the affected block; defaulted params keep SwiftUI/test callers unchanged). Input layer: `caretModelSelection()` + a single `applyEdit(_:)` choke point capturing the pre-edit caret; `performUndo`/`performRedo` place the returned caret via `restoreCaret(_:)`; **`changeSite`/`changeOffset` diffing deleted**. `WorkspaceUndoTests` assert restored `(document, caret)` incl. a selection-range round-trip (91 GalleyShell GREEN; 144 GalleyCore untouched). Build clean, 0 warnings. (session 6d262e, 2026-06-07)
 
 ---
 

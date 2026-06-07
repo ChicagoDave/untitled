@@ -18,6 +18,7 @@
 
 import AppKit
 import GalleyCore
+import GalleyShell
 
 extension InputController {
 
@@ -257,35 +258,35 @@ extension InputController {
 
     // MARK: Undo / redo (Cmd-Z, Cmd-Shift-Z)
 
-    /// Restores the previous document state and lands the caret *at the change site*
-    /// — the first block (and character) that differs — so undo focuses where it acted.
+    /// Restores the previous document state and lands the caret where it was *before*
+    /// the undone edit — the caret recorded with that edit, not a position re-derived
+    /// from a document diff (ADR-0031).
     func performUndo() {
         guard let buffer else { return }
-        let before = buffer.document
         editingTitleCut = nil
         pendingBreakDeletion = nil
-        buffer.undo()
-        restoreCaret(at: changeSite(from: before, to: buffer.document, atEnd: false))
+        restoreCaret(buffer.undo(currentCaret: caretModelSelection()))
     }
 
-    /// Re-applies the most recently undone state, landing the caret *after* the
-    /// re-applied change (the end of the changed region), as redo conventionally does.
+    /// Re-applies the most recently undone state, landing the caret where it was after
+    /// that edit (the caret recorded at undo time), as redo conventionally does.
     func performRedo() {
         guard let buffer else { return }
-        let before = buffer.document
         editingTitleCut = nil
         pendingBreakDeletion = nil
-        buffer.redo()
-        restoreCaret(at: changeSite(from: before, to: buffer.document, atEnd: true))
+        restoreCaret(buffer.redo(currentCaret: caretModelSelection()))
     }
 
-    /// Re-renders after an undo/redo and places the caret at `site` (clamped),
-    /// falling back to the first editable position so the caret never lands in the void.
-    private func restoreCaret(at site: (blockID: BlockID, offset: Int)?) {
+    /// Re-renders after an undo/redo and restores `caret` (clamped to a valid mapped
+    /// position), falling back to the first editable position so the caret never lands
+    /// in the void. Never re-derives the caret from a document diff (ADR-0031).
+    private func restoreCaret(_ caret: Caret?) {
         withoutSelectionSync {
             applyRender()
-            if let site, let position = currentLayout.characterPosition(forBlock: site.blockID, offset: site.offset) {
-                setSelectedRange(NSRange(location: position, length: 0))
+            if let caret,
+               let lower = currentLayout.characterPosition(forBlock: caret.start.blockID, offset: caret.start.offset),
+               let upper = currentLayout.characterPosition(forBlock: caret.end.blockID, offset: caret.end.offset) {
+                setSelectedRange(NSRange(location: lower, length: max(0, upper - lower)))
             } else if let first = currentLayout.firstEditablePosition(),
                       let position = currentLayout.characterPosition(forBlock: first.blockID, offset: first.offset) {
                 setSelectedRange(NSRange(location: position, length: 0))
@@ -294,48 +295,5 @@ extension InputController {
                 setSelectedRange(NSRange(location: min(selectedRange().location, length), length: 0))
             }
         }
-    }
-
-    /// The location an undo/redo acted on, in the new document. `atEnd` chooses where
-    /// in a changed block the caret lands: the start of the change (undo) or just past
-    /// it (redo). Falls back to an added/removed block, then the first changed cut.
-    private func changeSite(from old: Document, to new: Document, atEnd: Bool) -> (blockID: BlockID, offset: Int)? {
-        let shared = min(old.blocks.count, new.blocks.count)
-        for i in 0..<shared where old.blocks[i] != new.blocks[i] {
-            return (new.blocks[i].id, changeOffset(old.blocks[i], new.blocks[i], atEnd: atEnd))
-        }
-        if new.blocks.count != old.blocks.count {
-            if new.blocks.indices.contains(shared) { return (new.blocks[shared].id, 0) }
-            if let last = new.blocks.last { return (last.id, 0) }
-            return nil
-        }
-        if old.cuts != new.cuts {
-            if let cut = new.cuts.first(where: { !old.cuts.contains($0) }) ?? old.cuts.first(where: { !new.cuts.contains($0) }),
-               new.blocks.contains(where: { $0.id == cut.blockID }) {
-                return (cut.blockID, 0)
-            }
-        }
-        return nil
-    }
-
-    /// Where two paragraph blocks' text differs, in the *new* block's coordinates: the
-    /// first differing index (`atEnd == false`, for undo) or the end of the changed
-    /// region — new length minus the shared suffix (`atEnd == true`, for redo, so the
-    /// caret sits after the re-added text). 0 for non-paragraph content.
-    private func changeOffset(_ old: Block, _ new: Block, atEnd: Bool) -> Int {
-        guard case .paragraph(let oldRuns) = old.content,
-              case .paragraph(let newRuns) = new.content else { return 0 }
-        let oldText = Array(oldRuns.map(\.text).joined())
-        let newText = Array(newRuns.map(\.text).joined())
-        if atEnd {
-            var suffix = 0
-            while suffix < min(oldText.count, newText.count)
-                && oldText[oldText.count - 1 - suffix] == newText[newText.count - 1 - suffix] { suffix += 1 }
-            return newText.count - suffix
-        }
-        let shared = min(oldText.count, newText.count)
-        var prefix = 0
-        while prefix < shared && oldText[prefix] == newText[prefix] { prefix += 1 }
-        return prefix
     }
 }

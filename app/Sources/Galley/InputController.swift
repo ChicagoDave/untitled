@@ -112,18 +112,18 @@ final class InputController: NSTextView {
         // non-empty last paragraph) starts a fresh paragraph rather than appending,
         // so there is always a new line to begin in.
         if layout.isPastDocumentEnd(selectedRange().location), blockHasText(model.document, caret.blockID) {
-            model.apply(.splitParagraph(blockID: caret.blockID, offset: caret.offset))
+            applyEdit(.splitParagraph(blockID: caret.blockID, offset: caret.offset))
             let doc = model.document
             if let index = doc.blocks.firstIndex(where: { $0.id == caret.blockID }), index + 1 < doc.blocks.count {
                 let newBlock = doc.blocks[index + 1].id
-                model.apply(.insertText(text, blockID: newBlock, offset: 0))
+                applyEdit(.insertText(text, blockID: newBlock, offset: 0))
                 renderFromModel(caret: (newBlock, text.count))
                 refreshCompletion()
                 return
             }
         }
 
-        model.apply(.insertText(text, blockID: caret.blockID, offset: caret.offset))
+        applyEdit(.insertText(text, blockID: caret.blockID, offset: caret.offset))
         renderFromModel(caret: (caret.blockID, caret.offset + text.count))
         refreshCompletion()
     }
@@ -153,12 +153,12 @@ final class InputController: NSTextView {
            case .paragraph(let runs) = block.content,
            !block.overrides.isEmpty,
            runs.allSatisfy({ $0.text.isEmpty }) {
-            model.apply(.clearOverrides(blockID: caret.blockID))
+            applyEdit(.clearOverrides(blockID: caret.blockID))
             renderFromModel(caret: (caret.blockID, 0))
             return
         }
 
-        model.apply(.splitParagraph(blockID: caret.blockID, offset: caret.offset))
+        applyEdit(.splitParagraph(blockID: caret.blockID, offset: caret.offset))
 
         // The caret follows the text into the new trailing block.
         let doc = model.document
@@ -185,7 +185,7 @@ final class InputController: NSTextView {
         guard let model = buffer, let caret = caretModelPosition() else { return }
 
         if caret.offset > 0 {
-            model.apply(.deleteBackward(blockID: caret.blockID, offset: caret.offset))
+            applyEdit(.deleteBackward(blockID: caret.blockID, offset: caret.offset))
             renderFromModel(caret: (caret.blockID, caret.offset - 1))
             refreshCompletion()
             return
@@ -207,7 +207,7 @@ final class InputController: NSTextView {
         guard let index = doc.blocks.firstIndex(where: { $0.id == caret.blockID }), index > 0 else { return }
         let previous = doc.blocks[index - 1]
 
-        model.apply(.deleteBackward(blockID: caret.blockID, offset: 0))
+        applyEdit(.deleteBackward(blockID: caret.blockID, offset: 0))
 
         if case .paragraph(let runs) = previous.content {
             renderFromModel(caret: (previous.id, runs.reduce(0) { $0 + $1.text.count }))
@@ -274,20 +274,20 @@ final class InputController: NSTextView {
     /// Toggles italic over the current selection (Cmd-I, §8). A collapsed caret is
     /// a no-op — there is nothing to mark.
     func toggleItalicAtSelection() {
-        guard let model = buffer else { return }
+        guard buffer != nil else { return }
         let selection = selectedRange()
         guard let start = layout.modelPosition(forCharacterAt: selection.location),
               let end = layout.modelPosition(forCharacterAt: selection.location + selection.length),
               start.blockID == end.blockID, end.offset > start.offset else { return }
 
-        model.apply(.toggleItalic(blockID: start.blockID, start: start.offset, end: end.offset))
+        applyEdit(.toggleItalic(blockID: start.blockID, start: start.offset, end: end.offset))
         renderFromModel(selection: (start, end))
     }
 
     /// Converts the paragraph at the caret to/from a verse set-piece (§8).
     @objc func toggleVerse(_ sender: Any?) {
-        guard let model = buffer, let caret = caretModelPosition() else { return }
-        model.apply(.toggleSetPiece(blockID: caret.blockID, kind: .verse))
+        guard let caret = caretModelPosition() else { return }
+        applyEdit(.toggleSetPiece(blockID: caret.blockID, kind: .verse))
         renderFromModel(caret: (caret.blockID, 0))
     }
 
@@ -325,6 +325,26 @@ final class InputController: NSTextView {
     /// decoration. Visible module-wide so the reference extension can read it.
     func caretModelPosition() -> (blockID: BlockID, offset: Int)? {
         layout.modelPosition(forCharacterAt: selectedRange().location)
+    }
+
+    /// The current selection in model coordinates (collapsed for a plain caret), or
+    /// `nil` when neither end maps to an editable position. Threaded into edits so the
+    /// undo timeline restores the caret the writer had (ADR-0031).
+    func caretModelSelection() -> Caret? {
+        let range = selectedRange()
+        guard let start = layout.modelPosition(forCharacterAt: range.location) else { return nil }
+        let end = layout.modelPosition(forCharacterAt: range.location + range.length) ?? start
+        return Caret(
+            start: Caret.Position(blockID: start.blockID, offset: start.offset),
+            end: Caret.Position(blockID: end.blockID, offset: end.offset)
+        )
+    }
+
+    /// Applies an editing intent through the buffer, recording the pre-edit caret with
+    /// the undo checkpoint so undo lands the caret where the edit began (ADR-0031).
+    /// The single choke point for editor mutations, so the caret is captured uniformly.
+    func applyEdit(_ event: InputEvent) {
+        buffer?.apply(event, caret: caretModelSelection())
     }
 
     /// The layout the most recent render produced — exposed so the title-editing
