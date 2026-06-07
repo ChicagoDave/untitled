@@ -1,5 +1,7 @@
 # ADR-0006 — Reveal is a projection, and doubles as the slicing surface
 
+> **Superseded by [ADR-0030](0030-reveal-codes-is-a-co-equal-editing-surface.md).** The read-only stance recorded here is reversed: Reveal Codes becomes a co-equal, WordPerfect-fidelity editing surface sharing one caret with the prose editor. The chapter-slicing role is re-homed into inline stream editing (LT2/LT3).
+
 ## Context
 
 Reveal Codes worked in WordPerfect because the document had nothing hidden — the codes *were* the truth. With the own-model decision ([ADR-0004](0004-own-model-is-source-of-truth.md)), the model is the truth and views are pure functions over it, so a truth-view is nearly free. Separately, chapters are placed by dragging cut-points over the stream ([ADR-0005](0005-chapters-as-stream-overlay-not-containment.md)) — which looks exactly like editing reveal codes.

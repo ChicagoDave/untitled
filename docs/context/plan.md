@@ -544,3 +544,77 @@ No seeding or copying between layers. Each layer loads independently; the palett
     - A `[figure]` chip in the reveal that is deletable (removing the cut) — the chip's `CodeID.figure(BlockID)` identity already supports this; wiring the delete gesture is deferred to whenever reveal-chip interaction is generalized.
 - **Exit state**: `swift build` clean in both packages (no stubs remaining). GalleyCore tests GREEN (131 + new `setFigureCaption` tests if Option A, or unchanged if Option B). GalleyShell tests GREEN (82 + new `WorkspaceDocument` `images/` tests). Cmd-; → "Figure" inserts a visible placeholder in the editor; the placeholder survives save/reload; reveal shows a `[figure: …]` chip; caption is editable (or clearly set at insert, per ADR-0028). Integration Reality Statement produced; manual GUI smoke check passed. ADR-0027 and ADR-0028 were committed in LT4-1; this phase produces no new ADRs (the decisions were front-loaded). LT4 COMPLETE. Committed.
 - **Status**: PENDING
+
+---
+
+## UX-1: Undo/redo carries the caret (standalone, interleavable)
+
+**Added**: 2026-06-07 (session ce486f)
+**Relationship to surrounding phases**: Independent of LT4 and LT5. Improves the current single-surface editor on its own and is the shared-caret prerequisite for LT5 (ADR-0030). Can land before or interleaved with either. Small.
+**Bounded contexts touched**: N/A — app-layer store + input layer. `WorkspaceDocument` (store, rule 8a) and `InputController`.
+**Key domain language**: undo entry, model-coordinate caret, checkpoint
+
+### Design decision (front-loaded)
+
+**ADR-0031 — undo/redo carries the caret; no diff-based caret recovery (WRITTEN).** Each undo/redo entry stores `(Document, caret)` in model coordinates; `checkpoint()` captures the pre-edit caret; `undo()`/`redo()` restore it exactly. The `changeSite`/`changeOffset` document-diffing in `InputController+Title.swift:294-332` is deleted. Restore clamps to the nearest valid position, never re-derives from a diff.
+
+### Phase UX-1: store the caret in the undo timeline
+- **Tier**: Small
+- **Budget**: 100 tool calls
+- **Entry state**: ADR-0031 committed. `WorkspaceDocument.undoStack`/`redoStack` hold `[Document]`; `performUndo`/`performRedo` diff documents to infer the caret. `WorkspaceUndoTests` assert restored documents only.
+- **Deliverable**:
+  - **Boundary Statement** (rule 8a) for `WorkspaceDocument` before editing — the caret added is per-document editing state the store already-owning-the-timeline legitimately owns.
+  - `WorkspaceDocument` undo/redo stacks hold `(Document, caret)` where caret is a model-coordinate selection (collapsed `(blockID, offset)` or a start/end range). `checkpoint()` accepts the pre-edit caret; `apply(_:)` and the other checkpointing mutators (`setCutTitle`, `placeCut`, `removeCut`, …) thread it from the input layer (which knows it via `caretModelPosition()`). `undo()`/`redo()` return the stored caret.
+  - **Behavior Statement** (rule 12) for the changed `checkpoint`/`undo`/`redo` before tests.
+  - `performUndo`/`performRedo` in `InputController+Title.swift` place the returned caret via `restoreCaret`; **`changeSite` and `changeOffset` are deleted**.
+  - `WorkspaceUndoTests` updated: every case asserts the restored *caret* alongside the restored document (turns the document-only YELLOW into a `(document, caret)` GREEN).
+- **Exit state**: `swift build` clean; `WorkspaceUndoTests` GREEN asserting restored carets; no document-diffing caret code remains. Manual smoke: edit at two sites, undo — caret lands at each edit site in turn. Committed.
+- **Status**: PENDING
+
+---
+
+## LT5: Reveal Codes as a co-equal editing surface (WordPerfect fidelity)
+
+**Added**: 2026-06-07 (session ce486f)
+**Relationship to surrounding phases**: Sequenced **after LT4-2** (figures must exist so the editable surface can render `[figure: ref]` as a deletable code) and **after UX-1** (a single stored model-coordinate caret is the shared-caret prerequisite). This is a real track that reverses two ADRs; it gets its own detailed planning and a `/devarch:plan-review` once LT4 lands. The phases below are a scaffold, not the final plan.
+**Bounded contexts touched**: N/A — app-layer rendering + input. Reuses `GalleyCore`'s `revealProjection` and `InputEvent` reducer unchanged where possible; adds core ops only where no existing `InputEvent` expresses a code edit.
+**Key domain language**: Reveal Codes surface, atomic code, paired code (italic/set-piece open+close), shared model caret, split orientation (left/right/below), bidirectional edit
+
+### Design decisions (front-loaded)
+
+**ADR-0030 — Reveal Codes is a co-equal, WordPerfect-fidelity editing surface (WRITTEN).** Supersedes ADR-0006 (read-only reveal) and ADR-0014 (flow-layout reveal). Records: one model-coordinate caret shared by both panes; codes render inline as atomic, bracketed tokens the caret steps over (never inside); fully editable + live bidirectional (deleting a code drops its formatting instantly; paired codes delete together; typing inserts text); behavior-scope-only (the prose editor stays keyboard-first, WordPerfect conventions confined to the codes pane); the reveal surface is a TextKit view, not a flow layout; orientation user-configurable (left/right/below), **default right**.
+
+**Open sub-decisions to resolve during LT5 detailed planning (candidate ADRs):**
+- **Reverse mapping of code edits → `InputEvent`s.** Each atomic code edit must map to an existing reducer arm where one exists (delete `[Italc On]/[Italc Off]` pair → `toggleItalic` over the span; delete `[HRt]` → `deleteBackward` at a block boundary; delete a `[figure: …]` code → block deletion). New core ops only where none fits. Enumerate the full code→event table before coding.
+- **Where the shared caret lives.** *Resolved by ADR-0031* — the caret is owned at the `WorkspaceDocument`/workspace level (post-UX-1) so both surfaces read/write the one value; the two TextKit views render it into their own character coordinates. (Listed here as the seam this track consumes, not as an open question.)
+- **Orientation persistence.** A user preference (left/right/below) persisted alongside the existing session-restore machinery; default right.
+
+### Architecture constraints (carry-forward)
+
+- `GalleyCore` stays UI-free (ADR-0002, ADR-0011). `revealProjection` and the `InputEvent` reducer live there; the editable reveal *view* is AppKit in the `Galley` executable only.
+- Both surfaces are pure projections-of and writers-to the one `WorkspaceDocument` (ADR-0004) — they cannot drift.
+- The chapter-slicing role of the old reveal pane (ADR-0006) is re-homed into inline stream editing (already begun in LT2/LT3); the "Edit Chapters" panel mode and `ChapterEditor`/`ChapterAnchorRow` are retired.
+- Keyboard-first principle holds for the prose editor (memory: keyboard-first-writing-ux); WordPerfect conventions are confined to the codes pane.
+
+### References consulted
+
+- **ADR-0004** (`0004-own-model-is-source-of-truth.md`) — the model-as-truth guarantee that makes two non-drifting editable surfaces possible; it is *why* WordPerfect Reveal Codes worked.
+- **ADR-0030** / **ADR-0031** — the front-loaded decisions for this track (editable reveal; shared stored caret).
+- **ADR-0006** / **ADR-0014** — superseded by ADR-0030; retained for history.
+- **ADR-0009** (`0009-closed-vocabulary-codes-justify-to-reveal.md`) — every code shown in the surface is from the closed vocabulary; the surface is the "justify to reveal" gate made directly editable.
+- **ADR-0027** (`0027-figure-block-shape-and-serialization.md`) — the `[figure: ref]` chip becomes an atomic, deletable code in the editable surface; figures (LT4) precede this track for that reason.
+- **memory: keyboard-first-writing-ux** — structure via typing/codes, not panels.
+
+### Phase LT5-1 (scaffold): editable Reveal Codes TextKit surface + shared caret
+- **Tier**: Medium (to be confirmed in detailed planning)
+- Replace the `FlowLayout` reveal pane with a TextKit surface rendering `revealProjection` with codes as atomic inline tokens; wire the shared model-coordinate caret (post-UX-1) so the reveal caret *is* the editor caret rendered in reveal coordinates (#2). Read-only first to prove the rendering + caret mapping, then make codes navigable (caret steps over a code as one unit).
+
+### Phase LT5-2 (scaffold): bidirectional code editing
+- **Tier**: Medium (to be confirmed)
+- Map atomic code edits to `InputEvent`s (the code→event table); delete-a-code drops formatting in the prose pane live; paired codes delete together; typing in the codes pane inserts text. Both panes stay in sync via the one model. Integration Reality Statement + manual GUI smoke (edit in each pane, observe the other update; delete `[Italc]` pair; delete a `[figure]` code).
+
+### Phase LT5-3 (scaffold): configurable split orientation + persistence
+- **Tier**: Small (to be confirmed)
+- `ContentView` split supports left / right / below, user-selectable, default right; persist the choice with session restore. Replaces the fixed 340pt column (`ContentView.swift:71`).
+
+- **Status**: PENDING (detailed planning + plan-review deferred until LT4-2 lands)

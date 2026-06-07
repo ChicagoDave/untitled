@@ -1,5 +1,7 @@
 # ADR-0014 — The reveal pane renders as a SwiftUI flow layout
 
+> **Superseded by [ADR-0030](0030-reveal-codes-is-a-co-equal-editing-surface.md).** An editable, shared-caret Reveal Codes surface requires a real text-editing view; the `FlowLayout` of `Text`+chips is replaced by a TextKit surface. The pure projection/view-model mappings are retained.
+
 ## Context
 
 Build step 2, Phase 4 builds the reveal pane ([ADR-0006](0006-reveal-is-a-projection-and-slicing-surface.md))
