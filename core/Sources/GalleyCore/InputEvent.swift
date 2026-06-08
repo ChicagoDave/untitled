@@ -48,4 +48,32 @@ public enum InputEvent: Equatable, Sendable {
     /// Palette's template insertion, BP2). The inserted block is fully editable
     /// from the moment it lands; the caret is moved to it by the view layer.
     case insertBlock(content: BlockContent, overrides: [PresentationOverride], afterBlockID: BlockID)
+
+    /// Insert a section — a fresh empty paragraph after `afterBlockID` with a
+    /// boundary `ChapterCut` of `role` anchored to it (the palette's
+    /// Prologue/Epilogue/Dedication/Chapter rows, LT2). One atomic step so the
+    /// roled cut always anchors the seeded prose, never a half-applied state; the
+    /// caret is moved into the seeded block by the view layer.
+    case insertSection(role: SectionRole, afterBlockID: BlockID)
+
+    /// Clear all presentation overrides from a block, returning it to plain prose
+    /// (LT3) — the "second Enter ends the styled block" behaviour: pressing Enter on
+    /// an empty styled paragraph drops its overrides rather than continuing the style.
+    case clearOverrides(blockID: BlockID)
+
+    /// Replace the caption of a figure block (LT4-2, ADR-0028 Option A). The caption
+    /// is edited inline as a real, keyboard-reachable segment, so each keystroke is
+    /// one of these events against the figure's block. `imageRef` is unaffected.
+    case setFigureCaption(blockID: BlockID, caption: String)
+
+    /// Delete a whole block by ID — the Reveal Codes surface deleting an atomic
+    /// `[SceneBreak]` or `[figure]` code chip (LT5-2, ADR-0034). Relocates any cut
+    /// anchored to the block (ADR-0010); a no-op on an unknown or only block.
+    case deleteBlock(blockID: BlockID)
+
+    /// Remove the single presentation override at `index` on a block — the Reveal
+    /// Codes surface deleting one override chip (`[center]`, `[smallCaps]`, …)
+    /// (LT5-2, ADR-0034). Unlike `clearOverrides` (which removes all), this targets
+    /// one; a no-op on an unknown block or out-of-range index.
+    case clearOverride(blockID: BlockID, index: Int)
 }

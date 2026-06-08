@@ -54,8 +54,11 @@ enum Attribution {
                 out.append(ornament("* * *"))
             case .setPieceLine(let kind, let spans, let overrides):
                 out.append(setPieceLine(kind: kind, spans: spans, overrides: overrides))
-            case .chapterStart(let title):
-                out.append(chapterHeading(title))
+            case .chapterStart(let role, let title):
+                out.append(chapterHeading(role: role, title: title))
+            case .figure(let imageRef, let caption):
+                out.append(figureBox(imageRef: imageRef))
+                out.append(figureCaption(caption))
             }
         }
         return out
@@ -108,6 +111,69 @@ enum Attribution {
         return line(spans, baseFont: font(bodyFont, smallCaps: hasSmallCaps(overrides)), derivedItalic: derivedItalic, style: style)
     }
 
+    /// The figure placeholder box (LT4-2): a drawn rounded-rect `NSTextAttachment`
+    /// showing a photo glyph + the image reference in monospaced type — Galley shows
+    /// intent, never the image (ADR-0024). A non-editable boundary segment (the caret
+    /// never enters it, like a scene break); the caption beneath it is the editable
+    /// part. Rendered as its own paragraph so `EditorLayout` can map it to one
+    /// segment. Internal so `EditorLayout` composes the two figure segments.
+    static func figureBox(imageRef: String) -> NSAttributedString {
+        let style = paragraphStyle(alignment: .center, firstLineIndent: 0, spacingBefore: blockSpacing, spacingAfter: 4)
+        let box = NSTextAttachment()
+        box.image = figureBoxImage(imageRef.isEmpty ? "(image ref)" : imageRef)
+        let size = box.image!.size
+        box.bounds = NSRect(x: 0, y: bodyFont.descender, width: size.width, height: size.height)
+        let out = NSMutableAttributedString(attachment: box)
+        out.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: out.length))
+        out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
+        return out
+    }
+
+    /// The figure caption line (LT4-2, ADR-0028 Option A): the writer's caption
+    /// beneath the box, in a small italic secondary style. Rendered as its *literal*
+    /// text — an empty caption is an empty editable line — so the editor's
+    /// character↔offset mapping over this segment stays exact. No inline "(caption)"
+    /// placeholder text is injected: it would desync the editable segment's offsets,
+    /// and the box above already identifies the block. Internal so `EditorLayout`
+    /// maps it to the figure's editable caption segment.
+    static func figureCaption(_ caption: String) -> NSAttributedString {
+        let style = paragraphStyle(alignment: .center, firstLineIndent: 0, spacingAfter: blockSpacing)
+        let captionFont = NSFont(descriptor: bodyFont.fontDescriptor.withSymbolicTraits(.italic), size: bodyFont.pointSize - 1) ?? bodyFont
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: captionFont,
+            .paragraphStyle: style,
+            .foregroundColor: NSColor.secondaryLabelColor,
+        ]
+        let out = NSMutableAttributedString(string: caption, attributes: attributes)
+        out.append(NSAttributedString(string: "\n", attributes: attributes))
+        return out
+    }
+
+    /// Draws the figure placeholder box image: a rounded rectangle with a subtle
+    /// fill and border, a photo glyph, and `label` in monospaced type. Backing-scale
+    /// aware so it stays crisp on Retina.
+    private static func figureBoxImage(_ label: String) -> NSImage {
+        let text = "🖼  \(label)"
+        let font = NSFont.monospacedSystemFont(ofSize: bodySize, weight: .regular)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+        let textSize = (text as NSString).size(withAttributes: attributes)
+        let horizontalPadding: CGFloat = 14
+        let verticalPadding: CGFloat = 10
+        let size = NSSize(width: ceil(textSize.width) + horizontalPadding * 2,
+                          height: ceil(textSize.height) + verticalPadding * 2)
+        return NSImage(size: size, flipped: false) { rect in
+            let inset = rect.insetBy(dx: 0.5, dy: 0.5)
+            let box = NSBezierPath(roundedRect: inset, xRadius: 8, yRadius: 8)
+            NSColor.quaternaryLabelColor.withAlphaComponent(0.4).setFill()
+            box.fill()
+            box.lineWidth = 1
+            NSColor.tertiaryLabelColor.setStroke()
+            box.stroke()
+            (text as NSString).draw(at: NSPoint(x: horizontalPadding, y: verticalPadding), withAttributes: attributes)
+            return true
+        }
+    }
+
     /// The scene-break ornament, centered with generous spacing.
     private static func ornament(_ glyphs: String) -> NSAttributedString {
         let style = paragraphStyle(alignment: .center, firstLineIndent: 0, spacingBefore: blockSpacing, spacingAfter: blockSpacing)
@@ -118,16 +184,82 @@ enum Attribution {
         ])
     }
 
-    /// A chapter heading: bold serif, centered, with space above and below. A
-    /// titleless cut renders a centered divider so the boundary is still visible.
-    private static func chapterHeading(_ title: String?) -> NSAttributedString {
+    /// A chapter heading: bold serif, centered, with space above and below. The
+    /// heading text is the title when set; otherwise the role name for a non-chapter
+    /// section (Prologue / Epilogue / Dedication); otherwise — an untitled chapter —
+    /// a centered divider so the boundary is still visible (ADR-0026).
+    private static func chapterHeading(role: SectionRole, title: String?) -> NSAttributedString {
         let style = paragraphStyle(alignment: .center, firstLineIndent: 0, spacingBefore: blockSpacing * 2, spacingAfter: blockSpacing)
-        let text = (title?.isEmpty == false ? title! : "·   ·   ·")
+        let text: String
+        if let title {
+            // A non-nil title — including the empty string while its heading is being
+            // edited — renders verbatim, so the editable region matches the model.
+            text = title
+        } else if role != .chapter {
+            text = roleName(role)            // legacy: roleless title falls back to the role
+        } else {
+            text = "·   ·   ·"               // legacy: an untitled chapter shows a divider
+        }
         return NSAttributedString(string: text + "\n", attributes: [
             .font: headingFont,
             .paragraphStyle: style,
             .foregroundColor: NSColor.labelColor,
         ])
+    }
+
+    /// A break-deletion confirmation heading (LT3): the heading becomes a reveal-style
+    /// rounded chip (the title on an accent capsule) with plain `Delete [Y/N]?` text
+    /// beside it, so removing a break is a deliberate, visible Y/N answer — not a
+    /// silent prose merge. Left-aligned, matching the reveal chip's look.
+    static func deletePrompt(title: String) -> NSAttributedString {
+        let style = paragraphStyle(alignment: .natural, firstLineIndent: 0, spacingBefore: blockSpacing * 2, spacingAfter: blockSpacing)
+        let out = NSMutableAttributedString()
+
+        let chip = NSTextAttachment()
+        chip.image = chipImage(title.isEmpty ? "Break" : title)
+        let chipSize = chip.image!.size
+        chip.bounds = NSRect(x: 0, y: bodyFont.descender, width: chipSize.width, height: chipSize.height)
+        let chipString = NSMutableAttributedString(attachment: chip)
+        chipString.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: chipString.length))
+        out.append(chipString)
+
+        out.append(NSAttributedString(string: "  Delete [Y/N]?", attributes: [
+            .font: bodyFont,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: style,
+        ]))
+        out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
+        return out
+    }
+
+    /// Draws a rounded-capsule chip with `text` (accent fill, white label), matching
+    /// the reveal pane's chip. Backing-scale aware so it stays crisp on Retina.
+    private static func chipImage(_ text: String) -> NSImage {
+        let font = NSFont.monospacedSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.white]
+        let textSize = (text as NSString).size(withAttributes: attributes)
+        let horizontalPadding: CGFloat = 8
+        let verticalPadding: CGFloat = 3
+        let size = NSSize(width: ceil(textSize.width) + horizontalPadding * 2,
+                          height: ceil(textSize.height) + verticalPadding * 2)
+        return NSImage(size: size, flipped: false) { rect in
+            let radius = rect.height / 2
+            let capsule = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+            NSColor.controlAccentColor.setFill()
+            capsule.fill()
+            (text as NSString).draw(at: NSPoint(x: horizontalPadding, y: verticalPadding), withAttributes: attributes)
+            return true
+        }
+    }
+
+    /// The display name of a section role (ADR-0026).
+    private static func roleName(_ role: SectionRole) -> String {
+        switch role {
+        case .chapter: return "Chapter"
+        case .prologue: return "Prologue"
+        case .epilogue: return "Epilogue"
+        case .dedication: return "Dedication"
+        }
     }
 
     // MARK: Inline spans

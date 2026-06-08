@@ -31,9 +31,14 @@ extension Document {
                 // Cuts without an offset anchor at the block start; offset cuts
                 // split the prose text at the cut position.
                 for cut in blockCuts where cut.offsetInBlock == nil {
-                    tokens.append(.code(label: "Chapter", id: .chapter(block.id, nil)))
+                    tokens.append(.code(label: sectionLabel(cut.role), id: .chapter(block.id, nil)))
+                    // The chapter-opener spacing between the heading and the body (ADR-0035).
+                    tokens.append(.code(label: "sp", id: .sectionSpace(block.id)))
                 }
+                emitOverrides(block.overrides, blockID: block.id, into: &tokens)
                 tokens.append(contentsOf: paragraphTokens(runs, blockID: block.id, cuts: blockCuts))
+                // The paragraph's hard return — a visible block boundary (ADR-0035).
+                tokens.append(.code(label: "p", id: .paragraph(block.id)))
 
             case .sceneBreak:
                 emitStartCuts(blockCuts, blockID: block.id, into: &tokens)
@@ -41,6 +46,7 @@ extension Document {
 
             case .setPiece(let kind, let lines):
                 emitStartCuts(blockCuts, blockID: block.id, into: &tokens)
+                emitOverrides(block.overrides, blockID: block.id, into: &tokens)
                 let label = setPieceLabel(kind)
                 tokens.append(.code(label: label, id: .setPieceOpen(block.id)))
                 var span = 0
@@ -51,6 +57,12 @@ extension Document {
                     tokens.append(.code(label: "line", id: .line(block.id, index)))
                 }
                 tokens.append(.code(label: "/" + label, id: .setPieceClose(block.id)))
+
+            case .figure(let imageRef, _):
+                // A figure is a boundary block (like a scene break): cuts surface
+                // before it, then the single addressable `[figure: <ref>]` chip (LT4).
+                emitStartCuts(blockCuts, blockID: block.id, into: &tokens)
+                tokens.append(.code(label: "figure: \(imageRef)", id: .figure(block.id)))
             }
         }
 
@@ -63,7 +75,7 @@ extension Document {
     /// all such cuts surface at the block boundary, before the block's content.
     private func emitStartCuts(_ blockCuts: [ChapterCut], blockID: BlockID, into tokens: inout [RevealToken]) {
         for cut in blockCuts {
-            tokens.append(.code(label: "Chapter", id: .chapter(blockID, cut.offsetInBlock)))
+            tokens.append(.code(label: sectionLabel(cut.role), id: .chapter(blockID, cut.offsetInBlock)))
         }
     }
 
@@ -92,9 +104,9 @@ extension Document {
             position += runLength
         }
 
-        for offset in cuts.compactMap(\.offsetInBlock) {
-            let clamped = min(max(offset, 0), length)
-            markers.append((clamped, 1, .code(label: "Chapter", id: .chapter(blockID, clamped))))
+        for cut in cuts where cut.offsetInBlock != nil {
+            let clamped = min(max(cut.offsetInBlock ?? 0, 0), length)
+            markers.append((clamped, 1, .code(label: sectionLabel(cut.role), id: .chapter(blockID, clamped))))
         }
 
         markers.sort { ($0.offset, $0.order) < ($1.offset, $1.order) }
@@ -132,6 +144,37 @@ extension Document {
             }
         }
         return (tokens, span)
+    }
+
+    /// Emits a chip for each presentation override on a block, surfacing the closed
+    /// override vocabulary in the reveal so it is visible and deletable (ADR-0009).
+    private func emitOverrides(_ overrides: [PresentationOverride], blockID: BlockID, into tokens: inout [RevealToken]) {
+        for (index, override) in overrides.enumerated() {
+            tokens.append(.code(label: overrideLabel(override), id: .override(blockID, index)))
+        }
+    }
+
+    /// The reveal chip label for a presentation override (ADR-0009).
+    private func overrideLabel(_ override: PresentationOverride) -> String {
+        switch override {
+        case .smallCaps: return "smallCaps"
+        case .blockQuote: return "quote"
+        case .alignment(.leading): return "left"
+        case .alignment(.center): return "center"
+        case .alignment(.trailing): return "right"
+        }
+    }
+
+    /// The reveal chip label for a section cut, by its role (ADR-0026): `Chapter`,
+    /// `Prologue`, `Epilogue`, or `Dedication`. The reveal surfaces the role so a
+    /// prologue reads as a prologue, not an indistinct chapter.
+    private func sectionLabel(_ role: SectionRole) -> String {
+        switch role {
+        case .chapter: return "Chapter"
+        case .prologue: return "Prologue"
+        case .epilogue: return "Epilogue"
+        case .dedication: return "Dedication"
+        }
     }
 
     /// The reveal label for a set-piece kind: `Verse`, `Epigraph`, or `Letter`.

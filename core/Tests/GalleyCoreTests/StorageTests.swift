@@ -268,6 +268,101 @@ func roundTripBlockQuoteOverride() throws {
     #expect(restored.blocks[0].overrides == [.blockQuote])
 }
 
+// MARK: - Empty paragraphs round-trip (LT3 fix)
+
+@Test("round-trip: an empty paragraph (e.g. a fresh section body) survives serialize → parse")
+func roundTripEmptyParagraph() throws {
+    var doc = Document()
+    let heading = doc.mintBlockID()
+    let body = doc.mintBlockID()
+    doc.blocks = [
+        Block(id: heading, content: .paragraph(runs: [Run(text: "Chapter one.")])),
+        Block(id: body, content: .paragraph(runs: [])),          // empty section body
+    ]
+    doc.cuts = [ChapterCut(blockID: body, title: "Chapter #a", role: .chapter)]
+    let (prose, sidecar) = serialize(doc)
+    let restored = try parse(proseText: prose, sidecar: sidecar)
+    #expect(restored == doc)
+    #expect(restored.blocks.count == 2)                          // the empty body is preserved
+    #expect(restored.cuts.first?.blockID == body)               // its cut still anchors
+}
+
+@Test("round-trip: a document of several empty paragraphs keeps them all")
+func roundTripManyEmptyParagraphs() throws {
+    var doc = Document()
+    let ids = (0..<4).map { _ in doc.mintBlockID() }
+    doc.blocks = ids.enumerated().map { index, id in
+        Block(id: id, content: index == 1 ? .paragraph(runs: [Run(text: "Only this one.")]) : .paragraph(runs: []))
+    }
+    let (prose, sidecar) = serialize(doc)
+    let restored = try parse(proseText: prose, sidecar: sidecar)
+    #expect(restored == doc)
+    #expect(restored.blocks.map(\.id) == ids)
+}
+
+@Test("parse recovers a legacy bundle whose blank blocks were lost (sidecar > prose)")
+func parseRecoversLegacyMismatch() throws {
+    // A pre-fix sidecar: 3 blocks, no `empty` flags; prose only carries 1 (the other
+    // two were empty paragraphs the old serializer dropped). Parse pads the rest.
+    let sidecar = """
+    {"author":"","bible":[],"blocks":[{"id":0,"overrides":[]},{"id":1,"overrides":[]},{"id":2,"overrides":[]}],\
+    "cuts":[{"blockID":2,"offset":null,"opener":null,"title":"Chapter #a"}],\
+    "nextBlockID":3,"title":""}
+    """
+    let restored = try parse(proseText: "The only surviving line.", sidecar: sidecar)
+    #expect(restored.blocks.count == 3)                          // opens instead of throwing
+    #expect(restored.blocks.map(\.id) == [0, 1, 2])             // ids intact → the cut resolves
+    #expect(restored.cuts.first?.blockID == 2)
+}
+
+// MARK: - SectionRole sidecar codec (ADR-0026, LT2)
+
+@Test("round-trip: a roled cut (prologue) survives serialize → parse")
+func roundTripRoledCut() throws {
+    var doc = Document()
+    let id = doc.mintBlockID()
+    doc.blocks = [Block(id: id, content: .paragraph(runs: [Run(text: "Before it all began.")]))]
+    doc.cuts = [ChapterCut(blockID: id, role: .prologue)]
+    let (prose, sidecar) = serialize(doc)
+    #expect(sidecar.contains("prologue"))
+    let restored = try parse(proseText: prose, sidecar: sidecar)
+    #expect(restored == doc)
+    #expect(restored.cuts.first?.role == .prologue)
+}
+
+@Test("serialize omits the default chapter role so legacy sidecars stay byte-identical")
+func serializeOmitsDefaultChapterRole() {
+    var doc = Document()
+    let id = doc.mintBlockID()
+    doc.blocks = [Block(id: id, content: .paragraph(runs: [Run(text: "Chapter one.")]))]
+    doc.cuts = [ChapterCut(blockID: id)]                     // default .chapter role
+    let (_, sidecar) = serialize(doc)
+    #expect(!sidecar.contains("\"role\""))                   // no role key written for a plain chapter
+}
+
+@Test("a legacy roleless sidecar cut decodes to .chapter")
+func legacyRolelessCutDecodesToChapter() throws {
+    let sidecar = """
+    {"author":"","bible":[],"blocks":[{"id":0,"overrides":[]}],\
+    "cuts":[{"blockID":0,"offset":null,"opener":null,"title":null}],\
+    "nextBlockID":1,"title":""}
+    """
+    let restored = try parse(proseText: "Chapter one.", sidecar: sidecar)
+    #expect(restored.cuts.first?.role == .chapter)
+}
+
+@Test("parse rejects an unknown section-role token")
+func parseRejectsUnknownSectionRole() {
+    let sidecar = """
+    {"author":"","bible":[],"blocks":[{"id":0,"overrides":[]}],\
+    "cuts":[{"blockID":0,"offset":null,"opener":null,"title":null,"role":"interlude"}],\
+    "nextBlockID":1,"title":""}
+    """
+    #expect(throws: ParseError.unknownSectionRole("interlude")) {
+        _ = try parse(proseText: "para", sidecar: sidecar)
+    }
+}
+
 /// Builds a minimal valid sidecar JSON for the given blocks and counter.
 private func sidecarJSON(blocks: [(Int, [String])], nextBlockID: Int) -> String {
     let blockEntries = blocks.map { id, overrides in

@@ -59,6 +59,14 @@ public enum BlockContent: Equatable, Hashable, Sendable {
     /// A set-piece (verse / epigraph / letter): lines with preserved hard breaks
     /// (§7). Each line is its own sequence of runs.
     case setPiece(kind: SetPieceKind, lines: [[Run]])
+
+    /// A figure: an image *reference* (a filename in the package's `images/`
+    /// directory) plus a plain-text caption (LT4, ADR-0027). Carries no rendered
+    /// image — Galley stores intent only; the typesetter places and sizes the image
+    /// (ADR-0024). The editor shows a placeholder. Both fields may be empty (an
+    /// unfilled placeholder). A closed addition to the block vocabulary (ADR-0009
+    /// amendment), justified to the reveal as a `[figure: <ref>]` chip.
+    case figure(imageRef: String, caption: String)
 }
 
 /// The kinds of set-piece. Each derives its own alignment, italics, and spacing.

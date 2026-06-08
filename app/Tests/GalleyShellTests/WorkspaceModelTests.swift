@@ -41,6 +41,96 @@ struct WorkspaceModelTests {
         return url
     }
 
+    // MARK: Session restore (LT3)
+
+    /// A session store over a private defaults suite, so tests never touch the real
+    /// app domain.
+    private func sessionStore() -> WorkspaceSession {
+        WorkspaceSession(defaults: UserDefaults(suiteName: "galley.tests.\(UUID().uuidString)")!)
+    }
+
+    @Test func restoreReopensTheStoriesSavedToTheSession() throws {
+        let first = try writeBundle(makeDocument(text: "First."))
+        let second = try writeBundle(makeDocument(text: "Second."))
+        defer { try? FileManager.default.removeItem(at: first); try? FileManager.default.removeItem(at: second) }
+        let session = sessionStore()
+        session.save(urls: [first, second], currentIndex: 1)
+
+        let workspace = WorkspaceModel(session: session)
+        #expect(workspace.restore() == true)
+        #expect(workspace.openDocumentURLs.map(\.path) == [first.path, second.path])
+        #expect(workspace.currentIndex == 1)
+    }
+
+    @Test func restoreSkipsAStoryWhoseFileNoLongerExistsAndKeepsTheRest() throws {
+        let present = try writeBundle(makeDocument(text: "Here."))
+        defer { try? FileManager.default.removeItem(at: present) }
+        let missing = makeTempBundleURL()                    // never written
+        let session = sessionStore()
+        session.save(urls: [missing, present], currentIndex: 0)
+
+        let workspace = WorkspaceModel(session: session)
+        #expect(workspace.restore() == true)
+        #expect(workspace.openDocumentURLs.map(\.path) == [present.path])   // missing one dropped
+    }
+
+    @Test func restoreWithNoRecordLeavesTheLaunchBlankUntouched() {
+        let workspace = WorkspaceModel(session: sessionStore())
+        #expect(workspace.restore() == false)
+        #expect(workspace.documents.count == 1)
+        #expect(workspace.current.fileURL == nil)
+    }
+
+    @Test func openRecordsTheStoryToTheSessionForNextLaunch() throws {
+        let url = try writeBundle(makeDocument(text: "Saved."))
+        defer { try? FileManager.default.removeItem(at: url) }
+        let session = sessionStore()
+
+        let workspace = WorkspaceModel(session: session)
+        #expect(workspace.open(url: url) == true)
+        #expect(session.load().urls.map(\.path) == [url.path])   // open() persisted the session
+    }
+
+    // MARK: Reveal orientation persistence (LT5-3)
+
+    @Test func loadOrientationDefaultsToRightWhenNoKeyExists() {
+        let session = sessionStore()
+        #expect(session.loadOrientation() == .right)
+    }
+
+    @Test func savingOrientationThenReadingBackYieldsTheStoredValue() {
+        let session = sessionStore()
+        session.save(orientation: .below)
+        #expect(session.loadOrientation() == .below)
+    }
+
+    @Test func aWorkspaceInitializedFromASessionCarriesTheStoredOrientation() {
+        let session = sessionStore()
+        session.save(orientation: .left)
+
+        let workspace = WorkspaceModel(session: session)
+        #expect(workspace.revealOrientation == .left)
+    }
+
+    @Test func setRevealOrientationUpdatesTheModelAndPersistsToTheSession() {
+        let session = sessionStore()
+        let workspace = WorkspaceModel(session: session)
+        #expect(workspace.revealOrientation == .right)   // default before any change
+
+        workspace.setRevealOrientation(.below)
+
+        #expect(workspace.revealOrientation == .below)         // model updated
+        #expect(session.loadOrientation() == .below)           // persisted for next launch
+    }
+
+    @Test func workspaceWithNoSessionDefaultsToRightAndStillTracksChanges() {
+        let workspace = WorkspaceModel()
+        #expect(workspace.revealOrientation == .right)
+
+        workspace.setRevealOrientation(.left)
+        #expect(workspace.revealOrientation == .left)   // no-store path updates the property
+    }
+
     // MARK: new() DOES
 
     /// new() DOES append a blank buffer and make it current, leaving the prior one.

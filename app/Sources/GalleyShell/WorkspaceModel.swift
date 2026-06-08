@@ -57,10 +57,83 @@ public final class WorkspaceModel {
     /// AppKit and does not affect headless testability.
     public var pendingCloseIndex: Int?
 
+    /// A human-readable reason the last `open(url:)` failed, for the executable to
+    /// surface; `nil` when the last open succeeded or none has been attempted. Cleared
+    /// on the next successful open.
+    public var openError: String?
+
+    /// Where the reveal pane sits relative to the prose editor — a workspace-global
+    /// preference restored from the session on init and persisted on every change via
+    /// `setRevealOrientation(_:)` (LT5-3). Read-only to callers; mutate through the
+    /// setter so persistence is never bypassed.
+    public private(set) var revealOrientation: RevealOrientation
+
+    /// The session store the open stories are recorded in, for reopening on launch,
+    /// or `nil` to disable persistence (the default in tests).
+    private let session: WorkspaceSession?
+
     /// Creates a workspace with a single blank buffer — the launch state.
-    public init() {
+    ///
+    /// - Parameter session: where to persist the open stories for session restore;
+    ///   `nil` (the default) disables persistence so tests cause no side effects.
+    public init(session: WorkspaceSession? = nil) {
+        self.session = session
         self.documents = [WorkspaceDocument()]
         self.currentIndex = 0
+        self.revealOrientation = session?.loadOrientation() ?? .right
+    }
+
+    /// Sets the reveal-pane orientation and persists it for the next launch.
+    ///
+    /// The single mutation point for `revealOrientation` so the observable value and
+    /// the session store never drift. A no-op store (no session) updates the property
+    /// only.
+    ///
+    /// - Parameter orientation: the new reveal-pane placement.
+    public func setRevealOrientation(_ orientation: RevealOrientation) {
+        revealOrientation = orientation
+        session?.save(orientation: orientation)
+    }
+
+    // MARK: Session restore
+
+    /// The file-backed buffers' bundle URLs, in slot order — the restorable stories
+    /// (unsaved blanks have no URL and are skipped).
+    public var openDocumentURLs: [URL] { documents.compactMap(\.fileURL) }
+
+    /// Records the open stories and the current one to the session store, so the next
+    /// launch can reopen them. A no-op when no store is configured.
+    public func saveSession() {
+        guard let session else { return }
+        let urls = openDocumentURLs
+        let currentURL = current.fileURL
+        let index = currentURL.flatMap { urls.firstIndex(of: $0) } ?? 0
+        session.save(urls: urls, currentIndex: index)
+    }
+
+    /// Reopens the stories recorded in the session store, replacing the launch blank.
+    ///
+    /// Each saved URL whose bundle still exists and loads becomes a buffer, in saved
+    /// order; the saved current index is restored (clamped). Missing or unreadable
+    /// bundles are skipped.
+    ///
+    /// - Returns: `true` if at least one story was reopened; `false` (workspace
+    ///   unchanged) when there is no store, no record, or none of the files remain.
+    @discardableResult
+    public func restore() -> Bool {
+        guard let session else { return false }
+        let (urls, savedIndex) = session.load()
+
+        var restored: [WorkspaceDocument] = []
+        for url in urls where FileManager.default.fileExists(atPath: url.path) {
+            let buffer = WorkspaceDocument()
+            if (try? buffer.load(from: url)) != nil { restored.append(buffer) }
+        }
+        guard !restored.isEmpty else { return false }
+
+        documents = restored
+        currentIndex = min(max(savedIndex, 0), restored.count - 1)
+        return true
     }
 
     /// The buffer currently shown in the window.
@@ -78,6 +151,7 @@ public final class WorkspaceModel {
         autosaveCurrentIfPersisted()
         documents.append(WorkspaceDocument())
         currentIndex = documents.count - 1
+        saveSession()
     }
 
     /// Loads the bundle at `url` into a new buffer and switches to it, leaving the
@@ -95,11 +169,14 @@ public final class WorkspaceModel {
         do {
             try buffer.load(from: url)
         } catch {
+            openError = "Could not open “\(url.lastPathComponent)”: \(error)"
             return false
         }
+        openError = nil
         autosaveCurrentIfPersisted()
         documents.append(buffer)
         currentIndex = documents.count - 1
+        saveSession()
         return true
     }
 
@@ -112,6 +189,7 @@ public final class WorkspaceModel {
         guard documents.indices.contains(index) else { return }
         autosaveCurrentIfPersisted()
         currentIndex = index
+        saveSession()
     }
 
     /// Closes the buffer at `index`.
@@ -173,6 +251,7 @@ public final class WorkspaceModel {
             currentIndex = min(max(index - 1, 0), documents.count - 1)
         }
         // index > currentIndex: the current buffer is unaffected and still in range.
+        saveSession()
     }
 
     /// Persists the current buffer if it is backed by a file, so switching away from

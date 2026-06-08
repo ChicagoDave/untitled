@@ -28,6 +28,8 @@ func contentTextLength(_ content: BlockContent) -> Int {
         return 0
     case .setPiece(_, let lines):
         return lines.reduce(0) { $0 + runsTextLength($1) }
+    case .figure:
+        return 0   // a figure carries no inline prose text (its caption is not run text)
     }
 }
 

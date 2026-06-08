@@ -12,6 +12,7 @@
 //
 
 import AppKit
+import UniformTypeIdentifiers
 import GalleyShell
 
 /// Runs the document open/save panels and returns the chosen URLs.
@@ -22,24 +23,41 @@ import GalleyShell
 @MainActor
 enum FilePanels {
 
-    /// Prompts for a `.galley` bundle directory to open.
-    /// - Returns: the chosen directory, or `nil` if the user cancelled.
+    /// The `.galley` document content type. The exported package UTI when registered
+    /// (the bundled app, ADR-0019), else derived from the extension — so the panels
+    /// work whether or not Launch Services knows the type (e.g. under `swift run`).
+    private static var galleyType: UTType? {
+        UTType("com.galley.project") ?? UTType(filenameExtension: "galley")
+    }
+
+    /// Prompts for a `.galley` document to open.
+    ///
+    /// A `.galley` is a macOS package (ADR-0019): registered, it is selectable as a
+    /// *file*; unregistered (dev build), it appears as a *folder*. The panel allows
+    /// both — `canChooseFiles` for the package, `canChooseDirectories` for the plain
+    /// folder — and does not descend into packages, so one is chosen, not opened.
+    /// - Returns: the chosen document, or `nil` if the user cancelled.
     static func chooseOpenURL() -> URL? {
         let panel = NSOpenPanel()
+        panel.canChooseFiles = true
         panel.canChooseDirectories = true
-        panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
-        panel.message = "Choose a .galley document folder"
+        panel.treatsFilePackagesAsDirectories = false
+        var types: [UTType] = [.folder]
+        if let galleyType { types.insert(galleyType, at: 0) }
+        panel.allowedContentTypes = types
+        panel.message = "Choose a .galley document"
         return panel.runModal() == .OK ? panel.url : nil
     }
 
-    /// Prompts for a destination `.galley` bundle directory.
+    /// Prompts for a destination `.galley` document.
     /// - Parameter suggestedName: the default file name.
     /// - Returns: the chosen destination, or `nil` if the user cancelled.
     static func chooseSaveURL(suggestedName: String = "Untitled.galley") -> URL? {
         let panel = NSSavePanel()
+        if let galleyType { panel.allowedContentTypes = [galleyType] }
         panel.nameFieldStringValue = suggestedName
-        panel.message = "Save as a .galley document folder"
+        panel.message = "Save as a .galley document"
         return panel.runModal() == .OK ? panel.url : nil
     }
 }
@@ -68,6 +86,7 @@ extension WorkspaceModel {
             buffer.persist(to: url)
         } else if let url = FilePanels.chooseSaveURL() {
             buffer.persist(to: url)
+            saveSession()   // a newly-saved story becomes restorable immediately
         }
     }
 }

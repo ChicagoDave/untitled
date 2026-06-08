@@ -28,8 +28,9 @@ import GalleyShell
 @MainActor
 enum AppWorkspace {
 
-    /// The process-wide workspace for this single-window app.
-    static let shared = WorkspaceModel()
+    /// The process-wide workspace for this single-window app, backed by the session
+    /// store so the last-open stories reopen on the next launch.
+    static let shared = WorkspaceModel(session: WorkspaceSession())
 }
 
 /// Makes the SwiftPM-launched executable behave as a regular foreground app and
@@ -41,10 +42,20 @@ enum AppWorkspace {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
 
-    /// Promotes the process to a regular foreground app and brings it forward.
+    /// Promotes the process to a regular foreground app, brings it forward, and
+    /// reopens the last session's stories — unless Launch Services already opened a
+    /// document (e.g. a Finder double-click launch), which takes precedence.
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        if AppWorkspace.shared.openDocumentURLs.isEmpty {
+            AppWorkspace.shared.restore()
+        }
+    }
+
+    /// Records the open stories on quit so the next launch reopens them.
+    func applicationWillTerminate(_ notification: Notification) {
+        AppWorkspace.shared.saveSession()
     }
 
     /// Quits when the last window closes — expected single-window behaviour.

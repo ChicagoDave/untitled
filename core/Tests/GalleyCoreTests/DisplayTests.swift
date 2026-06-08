@@ -99,7 +99,7 @@ struct DisplayTests {
         )
 
         #expect(doc.displayProjection() == [
-            .chapterStart(title: "One"),
+            .chapterStart(role: .chapter, title: "One"),
             .paragraph(spans: [DisplaySpan(text: "Chapter body.")], overrides: []),
         ])
     }
@@ -112,7 +112,7 @@ struct DisplayTests {
         )
 
         #expect(doc.displayProjection() == [
-            .chapterStart(title: "Break Chapter"),
+            .chapterStart(role: .chapter, title: "Break Chapter"),
             .sceneBreak,
         ])
     }
@@ -126,7 +126,7 @@ struct DisplayTests {
 
         #expect(doc.displayProjection() == [
             .paragraph(spans: [DisplaySpan(text: "Before. ")], overrides: []),
-            .chapterStart(title: "Two"),
+            .chapterStart(role: .chapter, title: "Two"),
             .paragraph(spans: [DisplaySpan(text: "After.")], overrides: []),
         ])
     }
@@ -147,7 +147,7 @@ struct DisplayTests {
                 DisplaySpan(text: "plain "),
                 DisplaySpan(text: "ita", italic: true),
             ], overrides: []),
-            .chapterStart(title: "Mid"),
+            .chapterStart(role: .chapter, title: "Mid"),
             .paragraph(spans: [DisplaySpan(text: "lic", italic: true)], overrides: []),
         ])
     }
@@ -160,8 +160,21 @@ struct DisplayTests {
         )
 
         #expect(doc.displayProjection() == [
-            .chapterStart(title: "Start"),
+            .chapterStart(role: .chapter, title: "Start"),
             .paragraph(spans: [DisplaySpan(text: "Body.")], overrides: []),
+        ])
+    }
+
+    @Test func boundaryCutCarriesItsRoleSoAProloguePrintsAsAPrologue() {
+        let doc = Document(
+            blocks: [Block(id: 0, content: .paragraph(runs: [Run(text: "Before it all.")]))],
+            cuts: [ChapterCut(blockID: 0, role: .prologue)],
+            nextBlockID: 1
+        )
+
+        #expect(doc.displayProjection() == [
+            .chapterStart(role: .prologue, title: nil),
+            .paragraph(spans: [DisplaySpan(text: "Before it all.")], overrides: []),
         ])
     }
 

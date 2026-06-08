@@ -23,6 +23,12 @@ This is weighed against the reveal, ADR-0009's real gate (carry-forward plan-rev
 
 The addition is deliberately bounded: any *further* override case demands its own justification to the reveal, as this one did. Templates may carry only these closed tokens; an unknown token is a hard rejection in both the sidecar and the template parser ([ADR-0022](0022-block-template-file-format.md)).
 
+## Amendment — `figure` added to the block vocabulary (LT4, 2026-06-07)
+
+The fixed block set in the Decision above was Paragraph, SceneBreak, SetPiece. A fourth block kind — **`figure`** (an image *reference* + caption; [ADR-0027](0027-figure-block-shape-and-serialization.md)) — is adopted as a scoped, closed addition. It is the first growth of the *block set* itself (the `blockQuote` amendment grew the override hatch, not the block set), so it is recorded here to keep this ADR the single source of truth for the closed vocabulary.
+
+It passes ADR-0009's real gate — justify to the reveal: a figure surfaces as a single addressable `[figure: <ref>]` chip the writer can see and delete, exactly as the other block codes do. It is not an open media system: actual image rendering, sizing, and placement are explicitly *not* Galley's job (they belong to the typesetter, [ADR-0024](0024-authoring-and-typesetting-are-separate.md)); Galley stores only the reference + caption as intent. Any *further* figure-related vocabulary (alt-text, layout hints, inline-run captions, multi-image figures) demands its own justification to the reveal, as this one did — none are adopted here.
+
 ## Session
 
 ca5fff (2026-06-05) — extracted from overview §12, ADR-009.
@@ -30,3 +36,5 @@ ca5fff (2026-06-05) — extracted from overview §12, ADR-009.
 54ff60 (2026-06-05) — added the explicit-vs-derived italic consequence after Phase 4's `revealProjection` made the distinction concrete (`[i]`/`[/i]` chips for `Run.italic`; none for kind-derived italic).
 
 bf5f1f (2026-06-06) — Phase BP1: amended the closed `PresentationOverride` vocabulary with `blockQuote`; recorded the reveal justification. Shared the override wire codec across the sidecar and the template front-matter (rule 8b).
+
+LT4-1 (2026-06-07) — amended the block set with `figure` (image ref + caption), justified to the reveal as a `[figure: <ref>]` chip; rendering/placement deferred to the typesetter (ADR-0024, ADR-0027).

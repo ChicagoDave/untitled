@@ -47,6 +47,16 @@ struct ContentView: View {
     /// The buffer currently shown in the window.
     private var current: WorkspaceDocument { workspace.current }
 
+    /// A two-way binding over the workspace orientation that routes writes through
+    /// `setRevealOrientation` so the choice is persisted (the property is read-only to
+    /// callers by design).
+    private var orientationBinding: Binding<RevealOrientation> {
+        Binding(
+            get: { workspace.revealOrientation },
+            set: { workspace.setRevealOrientation($0) }
+        )
+    }
+
     /// The app + project name for the window title bar: "Galley — <title>" when
     /// the document is titled, otherwise just "Galley".
     private var projectTitle: String {
@@ -54,28 +64,64 @@ struct ContentView: View {
         return title.isEmpty ? "Galley" : "Galley — \(title)"
     }
 
+    /// The reveal pane host (TextKit surface, ADR-0032).
+    @ViewBuilder private var revealPane: some View {
+        RevealPane(buffer: current, caretToken: current.currentCaret)
+    }
+
+    /// The horizontal band: the prose editor with its fixed side panels (fields,
+    /// bible) and — for the `.left`/`.right` orientations — the reveal pane inline on
+    /// the indicated side. Kept a flat `HStack` (not `HSplitView`): a split view
+    /// re-parents the hosted `NSScrollView`, which broke the prose `NSTextView`'s
+    /// click hit-testing. The reveal pane is a *co-equal* surface (ADR-0030), so it
+    /// takes an equal share of the width — `maxWidth: .infinity` like the prose editor,
+    /// giving a 50/50 split of the space left after the fixed side panels (a
+    /// user-draggable divider is deferred — it needs an `NSSplitViewController` host
+    /// that preserves text-view hit-testing).
+    @ViewBuilder private var mainRow: some View {
+        HStack(spacing: 0) {
+            if showReveal, workspace.revealOrientation == .left {
+                revealPane.frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider()
+            }
+
+            if showFields {
+                MetadataPanel(buffer: current)
+                Divider()
+            }
+
+            DocumentTextView(buffer: current, caretToken: current.currentCaret)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            if showBible {
+                Divider()
+                BiblePane(buffer: current)
+            }
+
+            if showReveal, workspace.revealOrientation == .right {
+                Divider()
+                revealPane.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    /// The editor surface placed per the workspace's `revealOrientation`. Left/right
+    /// keep the reveal pane inline in `mainRow`; `below` stacks it under the row.
+    @ViewBuilder private var arrangedSurface: some View {
+        if showReveal, workspace.revealOrientation == .below {
+            VStack(spacing: 0) {
+                mainRow
+                Divider()
+                revealPane.frame(height: 240)
+            }
+        } else {
+            mainRow
+        }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                if showFields {
-                    MetadataPanel(buffer: current)
-                    Divider()
-                }
-
-                DocumentTextView(buffer: current)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if showReveal {
-                    Divider()
-                    RevealPane(buffer: current)
-                        .frame(width: 340)
-                }
-
-                if showBible {
-                    Divider()
-                    BiblePane(buffer: current)
-                }
-            }
+            arrangedSurface
 
             Divider()
 
@@ -86,6 +132,23 @@ struct ContentView: View {
                     .keyboardShortcut("i", modifiers: [.command, .shift])
                 Button(barLabel(showReveal ? "Hide Reveal" : "Reveal", "⌘/")) { showReveal.toggle() }
                     .keyboardShortcut("/", modifiers: .command)
+                if showReveal {
+                    Picker("Reveal placement", selection: orientationBinding) {
+                        ForEach(RevealOrientation.allCases, id: \.self) { orientation in
+                            Text(orientation.label).tag(orientation)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    // Keyboard-first: ⌘⇧/ cycles placement without reaching for the mouse.
+                    Button("Cycle Reveal Placement") {
+                        workspace.setRevealOrientation(workspace.revealOrientation.next)
+                    }
+                    .keyboardShortcut("/", modifiers: [.command, .shift])
+                    .hidden()
+                    .frame(width: 0, height: 0)
+                }
                 Button(barLabel(showBible ? "Hide Bible" : "Bible", "⌘⇧B")) { showBible.toggle() }
                     .keyboardShortcut("b", modifiers: [.command, .shift])
                 Spacer()
@@ -104,6 +167,17 @@ struct ContentView: View {
         }
         .frame(minWidth: 700, minHeight: 480)
         .navigationTitle(projectTitle)   // drives the window's title bar
+        .alert(
+            "Couldn’t open that document",
+            isPresented: Binding(
+                get: { workspace.openError != nil },
+                set: { presented in if !presented { workspace.openError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { workspace.openError = nil }
+        } message: {
+            Text(workspace.openError ?? "")
+        }
         .onAppear {
             // Track the Command key so the bottom-bar buttons can reveal their
             // shortcuts while it is held.

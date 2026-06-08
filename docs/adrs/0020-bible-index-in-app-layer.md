@@ -14,7 +14,7 @@ The §9 reference system has two sources: the **bible** (one Markdown note per e
 ## Consequences
 
 - File I/O stays out of the pure domain core (ADR-0002); both indexes carry no AppKit and are headlessly tested in `GalleyShellTests` (ADR-0011).
-- `GalleyCore.BibleEntry` is reused (no duplicate wire type); `GalleyCore.Bible` (the container on `Document`) is now redundant for this feature — a later cleanup may remove `Document.bible` or wire it. Flagged, not actioned.
+- `GalleyCore.BibleEntry` is reused (no duplicate wire type); `GalleyCore.Bible` (the container on `Document`) is now redundant for this feature — a later cleanup may remove `Document.bible` or wire it. **Amendment (Notes track, ADR-0036, NT1/NT3, session f1d4c9):** this cleanup is now actioned — `Bible`/`BibleEntry`/`Document.bible` are retired by the Notes track. Note this is **not** free: `Document.bible` is serialized (`Storage.swift` writes/reads a `bible: [BibleDTO]` sidecar array), so its removal edits `Storage.swift` and its round-trip tests and is a deliberate ADR-0007 format change (old sidecars' `bible` arrays are ignored on decode).
 - The indexes are rebuilt fresh from disk on open and after save (`WorkspaceDocument.reloadIndexes()`); there is no in-model copy to keep in sync.
 - Matching is a pure subsequence scorer over names; no external dependency, no AI (ADR-0008). The UX split that consumes these indexes — `@` for snippets, a panel for the bible — is recorded in [ADR-0021](0021-snippets-via-at-completion-bible-via-panel.md).
 

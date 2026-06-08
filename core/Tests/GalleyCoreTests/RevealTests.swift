@@ -23,6 +23,7 @@ func revealParagraphItalic() {
         .text("Ishmael"),
         .code(label: "/i", id: .italicClose(id, 0)),
         .text("."),
+        .code(label: "p", id: .paragraph(id)),
     ])
 }
 
@@ -31,7 +32,7 @@ func revealPlainParagraph() {
     var doc = Document()
     let id = doc.mintBlockID()
     doc.blocks = [Block(id: id, content: .paragraph(runs: [Run(text: "No marks here.")]))]
-    #expect(doc.revealProjection() == [.text("No marks here.")])
+    #expect(doc.revealProjection() == [.text("No marks here."), .code(label: "p", id: .paragraph(id))])
 }
 
 @Test("reveal: two italic spans in a block get distinct span indices")
@@ -49,6 +50,7 @@ func revealMultipleItalicSpans() {
         .code(label: "i", id: .italicOpen(id, 1)),
         .text("c"),
         .code(label: "/i", id: .italicClose(id, 1)),
+        .code(label: "p", id: .paragraph(id)),
     ])
 }
 
@@ -68,6 +70,7 @@ func revealChapterCutInsideItalic() {
         .text("ef"),
         .code(label: "/i", id: .italicClose(id, 0)),
         .text("ghi"),
+        .code(label: "p", id: .paragraph(id)),
     ])
 }
 
@@ -164,7 +167,9 @@ func revealBoundaryChapterCut() {
     doc.cuts = [ChapterCut(blockID: id, offsetInBlock: nil)]
     #expect(doc.revealProjection() == [
         .code(label: "Chapter", id: .chapter(id, nil)),
+        .code(label: "sp", id: .sectionSpace(id)),
         .text("Chapter two opens."),
+        .code(label: "p", id: .paragraph(id)),
     ])
 }
 
@@ -178,6 +183,7 @@ func revealMidParagraphChapterCut() {
         .text("abc"),
         .code(label: "Chapter", id: .chapter(id, 3)),
         .text("def"),
+        .code(label: "p", id: .paragraph(id)),
     ])
 }
 
@@ -190,6 +196,96 @@ func revealChapterCutOnSetPiece() {
     let tokens = doc.revealProjection()
     #expect(tokens.first == .code(label: "Chapter", id: .chapter(id, nil)))
     #expect(tokens[1] == .code(label: "Verse", id: .setPieceOpen(id)))
+}
+
+@Test("reveal: a roled cut labels its chip by role, so a prologue reads as a prologue")
+func revealRoledCutLabel() {
+    var doc = Document()
+    let id = doc.mintBlockID()
+    doc.blocks = [Block(id: id, content: .paragraph(runs: [Run(text: "Before it all.")]))]
+    doc.cuts = [ChapterCut(blockID: id, role: .prologue)]
+    #expect(doc.revealProjection() == [
+        .code(label: "Prologue", id: .chapter(id, nil)),
+        .code(label: "sp", id: .sectionSpace(id)),
+        .text("Before it all."),
+        .code(label: "p", id: .paragraph(id)),
+    ])
+}
+
+@Test("reveal: a block's presentation overrides surface as chips before its text")
+func revealOverrideChips() {
+    var doc = Document()
+    let id = doc.mintBlockID()
+    doc.blocks = [Block(
+        id: id,
+        content: .paragraph(runs: [Run(text: "An epigraph.")]),
+        overrides: [.alignment(.center), .smallCaps]
+    )]
+    #expect(doc.revealProjection() == [
+        .code(label: "center", id: .override(id, 0)),
+        .code(label: "smallCaps", id: .override(id, 1)),
+        .text("An epigraph."),
+        .code(label: "p", id: .paragraph(id)),
+    ])
+}
+
+@Test("reveal: a blockQuote override surfaces as a [quote] chip")
+func revealBlockQuoteChip() {
+    var doc = Document()
+    let id = doc.mintBlockID()
+    doc.blocks = [Block(id: id, content: .paragraph(runs: [Run(text: "Set off.")]), overrides: [.blockQuote])]
+    #expect(doc.revealProjection() == [
+        .code(label: "quote", id: .override(id, 0)),
+        .text("Set off."),
+        .code(label: "p", id: .paragraph(id)),
+    ])
+}
+
+@Test("reveal: every paragraph ends with a [p] hard-return chip (ADR-0035)")
+func revealParagraphHardReturn() {
+    var doc = Document()
+    let first = doc.mintBlockID()
+    let second = doc.mintBlockID()
+    doc.blocks = [
+        Block(id: first, content: .paragraph(runs: [Run(text: "One.")])),
+        Block(id: second, content: .paragraph(runs: [Run(text: "Two.")])),
+    ]
+    #expect(doc.revealProjection() == [
+        .text("One."),
+        .code(label: "p", id: .paragraph(first)),
+        .text("Two."),
+        .code(label: "p", id: .paragraph(second)),
+    ])
+}
+
+@Test("reveal: an empty paragraph still emits its [p] hard-return chip")
+func revealEmptyParagraphHardReturn() {
+    var doc = Document()
+    let id = doc.mintBlockID()
+    doc.blocks = [Block(id: id, content: .paragraph(runs: [Run(text: "")]))]
+    #expect(doc.revealProjection() == [.code(label: "p", id: .paragraph(id))])
+}
+
+@Test("reveal: a section break emits a [sp] opener-spacing chip after its [Chapter] (ADR-0035)")
+func revealSectionSpacing() {
+    var doc = Document()
+    let id = doc.mintBlockID()
+    doc.blocks = [Block(id: id, content: .paragraph(runs: [Run(text: "Body.")]))]
+    doc.cuts = [ChapterCut(blockID: id, offsetInBlock: nil)]
+    #expect(doc.revealProjection() == [
+        .code(label: "Chapter", id: .chapter(id, nil)),
+        .code(label: "sp", id: .sectionSpace(id)),
+        .text("Body."),
+        .code(label: "p", id: .paragraph(id)),
+    ])
+}
+
+@Test("reveal: a plain paragraph with no break emits no [sp] chip")
+func revealNoSpacingWithoutABreak() {
+    var doc = Document()
+    let id = doc.mintBlockID()
+    doc.blocks = [Block(id: id, content: .paragraph(runs: [Run(text: "Body.")]))]
+    #expect(!doc.revealProjection().contains(.code(label: "sp", id: .sectionSpace(id))))
 }
 
 @Test("reveal: an empty document projects to no tokens")

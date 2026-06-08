@@ -105,5 +105,7 @@ private func previewLabel(_ content: BlockContent) -> String {
         case .epigraph: return "[Epigraph]"
         case .letter: return "[Letter]"
         }
+    case .figure(let imageRef, _):
+        return imageRef.isEmpty ? "[figure]" : "[figure: \(imageRef)]"
     }
 }

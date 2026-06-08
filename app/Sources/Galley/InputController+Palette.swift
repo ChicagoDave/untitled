@@ -32,7 +32,12 @@ extension InputController {
         paletteItems = BlockPalette.items(templates: buffer.templateIndex)
         paletteSelection = 0
         // `items` always includes Scene Break, so the list is never empty.
-        palettePopover.show(labels: paletteItems.map(\.label), selected: 0, caretRect: caretBoundingRect(), in: self)
+        palettePopover.show(rows: paletteRows, selected: 0, caretRect: caretBoundingRect(), in: self)
+    }
+
+    /// The palette items as display rows (label + mnemonic key).
+    private var paletteRows: [PaletteRow] {
+        paletteItems.map { PaletteRow(label: $0.label, key: $0.key) }
     }
 
     /// Closes the palette session and clears its state.
@@ -50,11 +55,11 @@ extension InputController {
         switch event.keyCode {
         case 126:   // up arrow
             paletteSelection = max(paletteSelection - 1, 0)
-            palettePopover.update(labels: paletteItems.map(\.label), selected: paletteSelection)
+            palettePopover.update(rows: paletteRows, selected: paletteSelection)
             return true
         case 125:   // down arrow
             paletteSelection = min(paletteSelection + 1, paletteItems.count - 1)
-            palettePopover.update(labels: paletteItems.map(\.label), selected: paletteSelection)
+            palettePopover.update(rows: paletteRows, selected: paletteSelection)
             return true
         case 36, 76, 48:   // return / keypad enter / tab — accept
             acceptPaletteSelection()
@@ -63,13 +68,24 @@ extension InputController {
             endPalette()
             return true
         default:
+            // A mnemonic key (e.g. C → Chapter, P → Prologue) selects and inserts
+            // its row directly (LT3).
+            if let typed = event.charactersIgnoringModifiers?.uppercased(), typed.count == 1,
+               let index = paletteItems.firstIndex(where: { $0.key == typed }) {
+                paletteSelection = index
+                acceptPaletteSelection()
+                return true
+            }
             return false
         }
     }
 
-    /// Inserts the highlighted palette item as a new block after the anchor, through
-    /// the `insertBlock` reducer op, then moves the caret into the new editable
-    /// block. A non-editable insert (Scene Break) leaves the caret where it was.
+    /// Inserts the highlighted palette row after the anchor and moves the caret into
+    /// the seeded block. Blocks and templates dispatch `insertBlock`; sections
+    /// dispatch the atomic `insertSection` reducer arm (a roled cut + fresh prose).
+    /// Sections are titled afterwards, in the truth view — tap the section's chip in
+    /// the reveal pane (LT2) — not here, so the palette stays a pure insert surface.
+    /// A non-editable Scene Break leaves the caret where it was.
     func acceptPaletteSelection() {
         guard let buffer,
               paletteItems.indices.contains(paletteSelection),
@@ -78,34 +94,51 @@ extension InputController {
             return
         }
 
-        let (content, overrides) = blockContent(for: paletteItems[paletteSelection].action)
-        buffer.apply(.insertBlock(content: content, overrides: overrides, afterBlockID: anchor))
+        let action = paletteItems[paletteSelection].action
+        applyEdit(event(for: action, after: anchor))
         endPalette()
 
-        // The new block is the one now sitting immediately after the anchor. Place
-        // the caret at its start; for a non-editable Scene Break this maps to nil
-        // and the selection is simply left untouched.
+        // The seeded block is the one now sitting immediately after the anchor.
         let doc = buffer.document
-        if let i = doc.blocks.firstIndex(where: { $0.id == anchor }), i + 1 < doc.blocks.count {
-            renderFromModel(caret: (doc.blocks[i + 1].id, 0))
+        let seeded = doc.blocks.firstIndex(where: { $0.id == anchor }).flatMap { i in
+            i + 1 < doc.blocks.count ? doc.blocks[i + 1].id : nil
+        }
+
+        // A section drops straight into inline title editing (its seeded block is the
+        // cut's anchor) so the writer names it immediately, keyboard-first (LT3); a
+        // figure drops into its caption (the box is non-editable, so the caption is the
+        // keyboard-reachable surface, LT4-2/ADR-0028); every other insert just places
+        // the caret in the new editable block.
+        if case .section = action, let seeded {
+            beginTitleEditing(cut: seeded)
+        } else if case .figure = action, let seeded {
+            beginCaptionEditing(figure: seeded)
+        } else if let seeded {
+            renderFromModel(caret: (seeded, 0))
         } else {
             renderFromModel(caret: nil)
         }
     }
 
-    /// The model content + overrides a palette action inserts.
+    /// The reducer event a palette action dispatches against the anchor.
     ///
     /// A template becomes a single editable paragraph seeded with its body; any stray
     /// newline is flattened to a space so the block stays one logical paragraph
-    /// (multi-paragraph templates are a deferred v1 limit). Scene Break inserts the
-    /// ornament with no overrides.
-    private func blockContent(for action: BlockPaletteAction) -> (BlockContent, [PresentationOverride]) {
+    /// (multi-paragraph templates are a deferred v1 limit). A section seeds a fresh
+    /// paragraph plus a roled chapter cut anchored to it (LT2). Scene Break inserts
+    /// the ornament with no overrides.
+    private func event(for action: BlockPaletteAction, after anchor: BlockID) -> InputEvent {
         switch action {
         case .sceneBreak:
-            return (.sceneBreak, [])
+            return .insertBlock(content: .sceneBreak, overrides: [], afterBlockID: anchor)
+        case .figure:
+            return .insertBlock(content: .figure(imageRef: "", caption: ""), overrides: [], afterBlockID: anchor)
         case .template(let template):
             let body = template.body.replacingOccurrences(of: "\n", with: " ")
-            return (.paragraph(runs: [Run(text: body)]), template.overrides)
+            return .insertBlock(content: .paragraph(runs: [Run(text: body)]),
+                                overrides: template.overrides, afterBlockID: anchor)
+        case .section(let role):
+            return .insertSection(role: role, afterBlockID: anchor)
         }
     }
 }

@@ -1,5 +1,10 @@
 # ADR-0021 — Snippets via `@`-completion; the bible via a read-only side panel
 
+> **Status note (session f1d4c9):** the **bible half** of this ADR — the read-only
+> bible side panel (decision 2) and its `BibleIndex`/`BiblePane` — is **superseded by
+> [ADR-0036](0036-notes-capture-inbox-replaces-bible.md)** (Notes capture inbox). The
+> **snippets half** (decision 1, `@`-completion) remains in force.
+
 ## Context
 
 Phase 5 was first built as the overview's §9 literal reading suggested: inline `@`-bible completion that inserted an entity's canonical name, an `NSPopover` **peek** of the entity's notes (Tab), a **flick-to-last** keybinding (Cmd-Y), and a "scene remembers its references" annotation. In live use this fought the drafting flow: reading reference notes through transient inline popovers was fiddly to position and dismiss, and the remembered-references mechanism added surface without aiding writing. The writer's actual two needs are distinct: **insert reusable text** quickly while typing, and **read reference material** without losing the cursor.

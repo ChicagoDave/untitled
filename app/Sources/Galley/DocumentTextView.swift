@@ -20,6 +20,11 @@ struct DocumentTextView: NSViewRepresentable {
     /// The document buffer the editor reads from and writes to.
     var buffer: WorkspaceDocument
 
+    /// The shared caret, read here only so SwiftUI re-runs `updateNSView` when the
+    /// reveal surface moves the caret — letting this pane reconcile (ADR-0033). The
+    /// controller reads the live value from `buffer.currentCaret`.
+    var caretToken: Caret?
+
     func makeNSView(context: Context) -> NSScrollView {
         let scrollView = NSScrollView()
         scrollView.hasVerticalScroller = true
@@ -75,6 +80,7 @@ struct DocumentTextView: NSViewRepresentable {
             controller.renderFromModel(caret: EditorLayout.build(from: buffer.document).firstEditablePosition())
         } else {
             controller.syncFromModelIfNeeded()
+            controller.reconcileSharedCaret()   // follow a caret moved by the reveal surface (ADR-0033)
         }
     }
 }

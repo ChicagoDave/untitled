@@ -32,9 +32,14 @@ public enum DisplayToken: Equatable, Sendable {
     /// presentation, applied to every line of the set-piece.
     case setPieceLine(kind: SetPieceKind, spans: [DisplaySpan], overrides: [PresentationOverride])
 
-    /// A chapter opening spliced at a cut (ADR-0005). Carries the cut's title, if
-    /// any; the shell renders the heading/divider.
-    case chapterStart(title: String?)
+    /// A chapter opening spliced at a cut (ADR-0005). Carries the cut's `role`
+    /// (ADR-0026) and its title, if any; the shell renders the heading — the title
+    /// when set, else the role name for a non-chapter section, else a divider.
+    case chapterStart(role: SectionRole, title: String?)
+
+    /// A figure placeholder (LT4): the image reference and caption. The shell renders
+    /// a placeholder (icon + ref + caption) — never the image itself (ADR-0024).
+    case figure(imageRef: String, caption: String)
 }
 
 /// A run of display text plus its single inline mark.

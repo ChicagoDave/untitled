@@ -1,0 +1,9 @@
+{
+  "phase": "LT5-1",
+  "phaseName": "Read-only TextKit reveal render + shared caret rendered twice",
+  "tier": "Medium",
+  "budget": 250,
+  "toolCalls": 0,
+  "track": "LT5",
+  "note": "LT5 detailed plan written 2026-06-07. Prerequisites: LT4-2 COMPLETE, UX-1 COMPLETE. Plan-review should run before implementation begins."
+}

@@ -35,6 +35,10 @@ public enum ParseError: Error, Equatable {
     /// `PresentationOverride` vocabulary (ADR-0009).
     case unknownOverrideToken(String)
 
+    /// A sidecar cut carried a section-role token outside the closed `SectionRole`
+    /// vocabulary (ADR-0026).
+    case unknownSectionRole(String)
+
     /// The sidecar text was not the expected JSON shape.
     case malformedSidecar(String)
 }
@@ -51,7 +55,13 @@ public enum ParseError: Error, Equatable {
 /// - Note: total function — escaping makes the prose unambiguous, so the pair
 ///   always satisfies `parse(serialize(doc)) == doc` for a canonical document.
 public func serialize(_ doc: Document) -> (prose: String, sidecar: String) {
+    // Empty paragraphs (e.g. a freshly-inserted section's body, not yet typed) have
+    // no prose line — they would be indistinguishable from a block separator — so
+    // they are omitted from the prose and flagged in the sidecar instead, and the
+    // parser reconstructs them from that flag. This keeps the prose plain (ADR-0007)
+    // while making the round-trip total even with empty blocks (ADR-0010).
     let prose = doc.blocks
+        .filter { !isEmptyParagraph($0.content) }
         .map { serializeBlock($0.content) }
         .joined(separator: "\n\n")
 
@@ -68,9 +78,15 @@ public func serialize(_ doc: Document) -> (prose: String, sidecar: String) {
         logline: doc.meta.logline,
         bio: doc.meta.bio,
         agent: doc.meta.agent,
-        blocks: doc.blocks.map { BlockDTO(id: $0.id, overrides: encodeOverrides($0.overrides)) },
+        blocks: doc.blocks.map {
+            BlockDTO(id: $0.id, overrides: encodeOverrides($0.overrides),
+                     empty: isEmptyParagraph($0.content) ? true : nil)
+        },
         cuts: doc.cuts.map {
-            CutDTO(blockID: $0.blockID, offset: $0.offsetInBlock, title: $0.title, opener: $0.opener?.id)
+            // Omit the default `.chapter` role so legacy sidecars (which never
+            // carried one) stay byte-identical on round-trip (ADR-0026).
+            CutDTO(blockID: $0.blockID, offset: $0.offsetInBlock, title: $0.title,
+                   role: $0.role == .chapter ? nil : $0.role.rawValue, opener: $0.opener?.id)
         },
         bible: doc.bible.entries.map {
             BibleDTO(name: $0.name, canonicalText: $0.canonicalText, notes: $0.notes)
@@ -86,6 +102,13 @@ public func serialize(_ doc: Document) -> (prose: String, sidecar: String) {
     return (prose, sidecar)
 }
 
+/// Whether a block is an empty paragraph — one carrying no run text. These have no
+/// prose representation and are flagged in the sidecar instead (ADR-0007/0010).
+private func isEmptyParagraph(_ content: BlockContent) -> Bool {
+    guard case .paragraph(let runs) = content else { return false }
+    return runsTextLength(runs) == 0
+}
+
 /// Renders one block to its prose lines (no trailing block separator).
 private func serializeBlock(_ content: BlockContent) -> String {
     switch content {
@@ -96,14 +119,92 @@ private func serializeBlock(_ content: BlockContent) -> String {
     case .setPiece(let kind, let lines):
         let body = lines.map { serializeRuns($0) }
         return ([":::" + kindName(kind)] + body + [":::"]).joined(separator: "\n")
+    case .figure(let imageRef, let caption):
+        // A single human-readable marker line (ADR-0027): `[figure: ref]`, or
+        // `[figure: ref | caption]` when captioned. `\`, `]`, and `|` are escaped so
+        // the fields round-trip; the caption lives in the prose (ADR-0007).
+        let ref = encodeFigureField(imageRef)
+        return caption.isEmpty
+            ? "[figure: \(ref)]"
+            : "[figure: \(ref) | \(encodeFigureField(caption))]"
     }
+}
+
+/// Escapes a figure field (`imageRef`/`caption`) for the prose marker: `\`, `]`, and
+/// `|` are backslash-escaped so the marker's delimiters stay unambiguous (ADR-0027).
+private func encodeFigureField(_ text: String) -> String {
+    var out = ""
+    for character in text {
+        switch character {
+        case "\\": out += "\\\\"
+        case "]": out += "\\]"
+        case "|": out += "\\|"
+        default: out.append(character)
+        }
+    }
+    return out
+}
+
+/// Reverses `encodeFigureField`: honours `\` escapes, copying the escaped character
+/// verbatim.
+private func decodeFigureField(_ text: String) -> String {
+    var out = ""
+    var index = text.startIndex
+    while index < text.endIndex {
+        if text[index] == "\\" {
+            let next = text.index(after: index)
+            if next < text.endIndex {
+                out.append(text[next])
+                index = text.index(after: next)
+                continue
+            }
+        }
+        out.append(text[index])
+        index = text.index(after: index)
+    }
+    return out
+}
+
+/// Parses a `[figure: …]` marker line into its `(imageRef, caption)` (ADR-0027).
+///
+/// The payload between `[figure:` and the trailing `]` is split at the first
+/// *unescaped* `|`; the single cosmetic spaces the serializer adds (`[figure: `,
+/// ` | `) are stripped, then each side is unescaped. No `|` means an empty caption.
+private func parseFigureMarker(_ line: String) -> (imageRef: String, caption: String) {
+    var payload = String(line.dropFirst("[figure:".count).dropLast())   // strip "[figure:" and "]"
+    if payload.hasPrefix(" ") { payload.removeFirst() }
+
+    guard let bar = firstUnescapedPipe(in: payload) else {
+        return (decodeFigureField(payload), "")
+    }
+    var refPart = String(payload[..<bar])
+    var captionPart = String(payload[payload.index(after: bar)...])
+    if refPart.hasSuffix(" ") { refPart.removeLast() }
+    if captionPart.hasPrefix(" ") { captionPart.removeFirst() }
+    return (decodeFigureField(refPart), decodeFigureField(captionPart))
+}
+
+/// The index of the first `|` not preceded by a `\` escape, or `nil`.
+private func firstUnescapedPipe(in text: String) -> String.Index? {
+    var index = text.startIndex
+    while index < text.endIndex {
+        let character = text[index]
+        if character == "\\" {
+            let next = text.index(after: index)
+            index = next < text.endIndex ? text.index(after: next) : text.endIndex
+            continue
+        }
+        if character == "|" { return index }
+        index = text.index(after: index)
+    }
+    return nil
 }
 
 /// Serializes a paragraph's runs to a single line, escaping it further if the
 /// result would otherwise be misread as a scene break or set-piece fence.
 private func serializeParagraphLine(_ runs: [Run]) -> String {
     let line = serializeRuns(runs)
-    if line == "***" || line == "#" || line.hasPrefix(":::") {
+    if line == "***" || line == "#" || line.hasPrefix(":::") || line.hasPrefix("[figure:") {
         return "\\" + line
     }
     return line
@@ -162,24 +263,37 @@ public func parse(proseText: String, sidecar: String?) throws -> Document {
         throw ParseError.malformedSidecar(String(describing: error))
     }
 
-    guard dto.blocks.count == contents.count else {
-        throw ParseError.blockCountMismatch(prose: contents.count, sidecar: dto.blocks.count)
-    }
-
+    // Reconstruct blocks from the sidecar's ordered list, drawing prose content for
+    // each non-empty block in order and synthesizing an empty paragraph wherever the
+    // sidecar flags one (it has no prose line). A block past the available prose
+    // content is also treated as empty — recovering legacy bundles written before
+    // empty paragraphs were flagged (they silently lost their blank blocks).
     var blocks: [Block] = []
-    blocks.reserveCapacity(contents.count)
-    for (content, meta) in zip(contents, dto.blocks) {
+    blocks.reserveCapacity(dto.blocks.count)
+    var contentIndex = 0
+    for meta in dto.blocks {
         let overrides = try meta.overrides.map(decodeOverride)
-        blocks.append(Block(id: meta.id, content: content, overrides: overrides))
+        if meta.empty == true || contentIndex >= contents.count {
+            blocks.append(Block(id: meta.id, content: .paragraph(runs: []), overrides: overrides))
+        } else {
+            blocks.append(Block(id: meta.id, content: contents[contentIndex], overrides: overrides))
+            contentIndex += 1
+        }
+    }
+    guard contentIndex == contents.count else {
+        // More prose blocks than the sidecar accounts for — genuinely out of sync.
+        throw ParseError.blockCountMismatch(prose: contents.count, sidecar: dto.blocks.count)
     }
 
     let knownIDs = Set(blocks.map(\.id))
     let cuts = try dto.cuts.map { cut -> ChapterCut in
         guard knownIDs.contains(cut.blockID) else { throw ParseError.unknownBlockID(cut.blockID) }
+        let role = try decodeSectionRole(cut.role)
         return ChapterCut(
             blockID: cut.blockID,
             offsetInBlock: cut.offset,
             title: cut.title,
+            role: role,
             opener: cut.opener.map { TemplateRef(id: $0) }
         )
     }
@@ -224,6 +338,13 @@ private func parseProseBlocks(_ proseText: String) throws -> [BlockContent] {
 
         if line == "***" || line == "#" {
             blocks.append(.sceneBreak)
+            index += 1
+            continue
+        }
+
+        if line.hasPrefix("[figure:") && line.hasSuffix("]") {
+            let (imageRef, caption) = parseFigureMarker(line)
+            blocks.append(.figure(imageRef: imageRef, caption: caption))
             index += 1
             continue
         }
@@ -310,6 +431,18 @@ private func decodeOverride(_ token: String) throws -> PresentationOverride {
     return override
 }
 
+/// Decodes a sidecar section-role token back to a `SectionRole` (ADR-0026). A
+/// missing token (`nil`) is a legacy roleless cut → `.chapter` (back-compatible);
+/// a present-but-unknown token is a hard rejection, never silently defaulted,
+/// mirroring the closed-vocabulary discipline of `decodeOverride`.
+private func decodeSectionRole(_ token: String?) throws -> SectionRole {
+    guard let token else { return .chapter }
+    guard let role = SectionRole(rawValue: token) else {
+        throw ParseError.unknownSectionRole(token)
+    }
+    return role
+}
+
 // MARK: - Sidecar DTO
 
 /// The JSON shape of the chapter sidecar (ADR-0007). A dedicated transfer type so
@@ -340,6 +473,10 @@ private struct SidecarDTO: Codable {
 private struct BlockDTO: Codable {
     var id: Int
     var overrides: [String]
+    // `true` for an empty paragraph, which has no prose line and is reconstructed
+    // from this flag. Omitted (nil) for ordinary blocks, so non-empty sidecars stay
+    // byte-identical and pre-flag bundles still decode.
+    var empty: Bool?
 }
 
 /// Sidecar entry for a chapter cut (ADR-0010): anchored by block ID, never by
@@ -348,6 +485,10 @@ private struct CutDTO: Codable {
     var blockID: Int
     var offset: Int?
     var title: String?
+    // Section role token (ADR-0026); optional so cuts written before roles existed
+    // still decode (missing key → nil → `.chapter`). The default `.chapter` is
+    // written as nil so legacy sidecars round-trip byte-identical.
+    var role: String?
     var opener: String?
 }
 

@@ -69,4 +69,31 @@ struct PaletteInsertionRoundTripTests {
             Issue.record("expected the inserted block to be a paragraph")
         }
     }
+
+    @Test func insertingTheFigurePaletteRowSurvivesSaveAndReopen() throws {
+        let bundle = grayHarbor()
+
+        // 1. Open the real project (prose-only import; mints block IDs).
+        let opened = try DocumentBundle.read(from: bundle)
+        let anchorID = try #require(opened.blocks.first?.id)
+
+        // 2. Apply the exact event the palette's Figure row dispatches (empty ref +
+        //    caption — the writer fills them in), mirroring InputController.event(for:).
+        let edited = applyInput(
+            .insertBlock(content: .figure(imageRef: "", caption: ""), overrides: [], afterBlockID: anchorID),
+            to: opened
+        )
+        #expect(edited.blocks.count == opened.blocks.count + 1)
+
+        // 3. Persist and reopen through the real bundle I/O (a temp copy).
+        let temp = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString + ".galley", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: temp) }
+        try DocumentBundle.write(edited, to: temp)
+        let reloaded = try DocumentBundle.read(from: temp)
+
+        // 4. The inserted figure (empty placeholder) survives the round-trip.
+        #expect(reloaded == edited)
+        #expect(reloaded.blocks[1].content == .figure(imageRef: "", caption: ""))
+    }
 }

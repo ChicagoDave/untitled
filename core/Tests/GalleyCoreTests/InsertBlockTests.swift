@@ -76,6 +76,21 @@ struct InsertBlockTests {
         #expect(result.cuts == [ChapterCut(blockID: 1, title: "Two")])   // anchor unmoved
     }
 
+    // MARK: Clear overrides (LT3)
+
+    @Test func clearOverridesReturnsABlockToPlainProse() {
+        var doc = twoParagraphs()
+        doc.blocks[0].overrides = [.alignment(.center), .smallCaps]
+        let result = applyInput(.clearOverrides(blockID: 0), to: doc)
+        #expect(result.blocks[0].overrides.isEmpty)
+    }
+
+    @Test func clearOverridesOnUnknownBlockIsANoOp() {
+        let doc = twoParagraphs()
+        let result = applyInput(.clearOverrides(blockID: 99), to: doc)
+        #expect(result == doc)
+    }
+
     // MARK: REJECTS WHEN
 
     @Test func unknownAnchorIsANoOpLeavingTheDocumentAndCounterUnchanged() {
