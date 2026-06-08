@@ -62,6 +62,12 @@ public final class WorkspaceModel {
     /// on the next successful open.
     public var openError: String?
 
+    /// Where the reveal pane sits relative to the prose editor — a workspace-global
+    /// preference restored from the session on init and persisted on every change via
+    /// `setRevealOrientation(_:)` (LT5-3). Read-only to callers; mutate through the
+    /// setter so persistence is never bypassed.
+    public private(set) var revealOrientation: RevealOrientation
+
     /// The session store the open stories are recorded in, for reopening on launch,
     /// or `nil` to disable persistence (the default in tests).
     private let session: WorkspaceSession?
@@ -74,6 +80,19 @@ public final class WorkspaceModel {
         self.session = session
         self.documents = [WorkspaceDocument()]
         self.currentIndex = 0
+        self.revealOrientation = session?.loadOrientation() ?? .right
+    }
+
+    /// Sets the reveal-pane orientation and persists it for the next launch.
+    ///
+    /// The single mutation point for `revealOrientation` so the observable value and
+    /// the session store never drift. A no-op store (no session) updates the property
+    /// only.
+    ///
+    /// - Parameter orientation: the new reveal-pane placement.
+    public func setRevealOrientation(_ orientation: RevealOrientation) {
+        revealOrientation = orientation
+        session?.save(orientation: orientation)
     }
 
     // MARK: Session restore

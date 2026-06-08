@@ -32,9 +32,13 @@ extension Document {
                 // split the prose text at the cut position.
                 for cut in blockCuts where cut.offsetInBlock == nil {
                     tokens.append(.code(label: sectionLabel(cut.role), id: .chapter(block.id, nil)))
+                    // The chapter-opener spacing between the heading and the body (ADR-0035).
+                    tokens.append(.code(label: "sp", id: .sectionSpace(block.id)))
                 }
                 emitOverrides(block.overrides, blockID: block.id, into: &tokens)
                 tokens.append(contentsOf: paragraphTokens(runs, blockID: block.id, cuts: blockCuts))
+                // The paragraph's hard return — a visible block boundary (ADR-0035).
+                tokens.append(.code(label: "p", id: .paragraph(block.id)))
 
             case .sceneBreak:
                 emitStartCuts(blockCuts, blockID: block.id, into: &tokens)

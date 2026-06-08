@@ -90,11 +90,15 @@ public func revealSegments(of doc: Document) -> [RevealSegment] {
             for cut in blockCuts where cut.offsetInBlock == nil {
                 code(sectionLabel(cut.role), .chapter(block.id, nil), block: block.id)
                 title(doc.resolvedTitle(forCutAt: block.id), cut: block.id)
+                // The chapter-opener spacing between the heading and the body (ADR-0035).
+                code("sp", .sectionSpace(block.id), block: block.id)
             }
             for (index, override) in block.overrides.enumerated() {
                 code(overrideLabel(override), .override(block.id, index), block: block.id)
             }
             segments.append(contentsOf: paragraphSegments(runs, blockID: block.id, cuts: blockCuts, doc: doc))
+            // The paragraph's hard return — a visible block boundary (ADR-0035).
+            code("p", .paragraph(block.id), block: block.id)
 
         case .sceneBreak:
             emitStartCuts(blockCuts, doc: doc, block: block.id, code: code, title: title)

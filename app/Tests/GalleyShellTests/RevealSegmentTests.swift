@@ -45,8 +45,9 @@ struct RevealSegmentTests {
         #expect(text[0].0 == "Hello " && text[0].1 == 0 && text[0].2 == 0)
         #expect(text[1].0 == "brave"  && text[1].1 == 0 && text[1].2 == 6)
         #expect(text[2].0 == " world" && text[2].1 == 0 && text[2].2 == 11)
-        // The italic span surfaces as a paired, non-editable code.
-        #expect(codeIDs(segments) == [.italicOpen(0, 0), .italicClose(0, 0)])
+        // The italic span surfaces as a paired, non-editable code; the paragraph ends
+        // with its [p] hard-return chip (ADR-0035).
+        #expect(codeIDs(segments) == [.italicOpen(0, 0), .italicClose(0, 0), .paragraph(0)])
     }
 
     @Test func chapterCutEmitsCodeThenResolvedTitleAsNonEditableText() {
@@ -68,6 +69,9 @@ struct RevealSegmentTests {
         #expect(titleSeg != nil)
         #expect(titleSeg?.editable == false)
         #expect(titleSeg?.blockID == 0)
+        // After the title comes the [sp] opener-spacing chip, then the body (ADR-0035):
+        // the code order is [Chapter], [sp], [p] (the title is text, not a code).
+        #expect(codeIDs(segments) == [.chapter(0, nil), .sectionSpace(0), .paragraph(0)])
         // The prose body is still editable.
         #expect(editableText(segments).contains { $0.0 == "Body" && $0.2 == 0 })
     }
@@ -87,7 +91,8 @@ struct RevealSegmentTests {
         ], nextBlockID: 3)
 
         let segments = revealSegments(of: doc)
-        #expect(codeIDs(segments) == [.sceneBreak(1), .figure(2)])
+        // The paragraph's [p] hard return precedes the scene-break and figure chips.
+        #expect(codeIDs(segments) == [.paragraph(0), .sceneBreak(1), .figure(2)])
         // Neither chip is editable; the caret steps over them.
         #expect(segments.allSatisfy { seg in
             if case .code = seg.kind { return seg.editable == false }
@@ -117,7 +122,7 @@ struct RevealSegmentTests {
         ], nextBlockID: 1)
 
         let segments = revealSegments(of: doc)
-        #expect(codeIDs(segments) == [.override(0, 0), .override(0, 1)])
+        #expect(codeIDs(segments) == [.override(0, 0), .override(0, 1), .paragraph(0)])
     }
 
     /// The drift guard (ADR-0032): the annotated projection's code order must match the

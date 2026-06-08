@@ -47,8 +47,8 @@ public func revealDeleteAction(for code: CodeID, in doc: Document) -> RevealDele
         return .event(.toggleSetPiece(blockID: b, kind: kind))
     case .chapter(let b, nil):
         return .removeCut(blockID: b)
-    case .chapter, .line:
-        return .deferred   // mid-block cut & set-piece line deletion deferred (ADR-0034)
+    case .chapter, .line, .paragraph, .sectionSpace:
+        return .deferred   // mid-block cut, set-piece line, paragraph-merge & section-spacing deletion deferred (ADR-0034/0035)
     }
 }
 

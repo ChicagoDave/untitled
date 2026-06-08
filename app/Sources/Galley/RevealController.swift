@@ -214,7 +214,7 @@ final class RevealController: NSTextView {
         case .override(let b, _), .italicOpen(let b, _), .italicClose(let b, _),
              .setPieceOpen(let b), .setPieceClose(let b):
             return Caret(blockID: b, offset: 0)
-        case .chapter, .line: return nil
+        case .chapter, .line, .paragraph, .sectionSpace: return nil
         }
     }
 }

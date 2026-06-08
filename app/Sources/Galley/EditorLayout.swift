@@ -216,12 +216,21 @@ struct EditorLayout {
     }
 
     /// The cut whose heading segment (editable or not) covers `position`, for
-    /// click-to-edit hit-testing.
+    /// arrow-glide and exit hit-testing.
+    ///
+    /// A non-edited heading **releases its end boundary** to the prose that follows:
+    /// the chapter's first prose character sits exactly at the heading segment's upper
+    /// edge, and a click there must stay in the prose, not read as "on the heading"
+    /// (which would glide the caret backward to the previous section). An *edited*
+    /// title keeps its end caret inclusive, so editing at the end of the title works.
     func headingCut(forCharacterAt position: Int) -> BlockID? {
         for segment in segments where segment.titleCutBlockID != nil {
             let lower = segment.utf16Range.location
             let upper = lower + segment.utf16Range.length
-            if position >= lower && position <= upper { return segment.titleCutBlockID }
+            guard position >= lower else { continue }
+            if position < upper || (segment.editable && position == upper) {
+                return segment.titleCutBlockID
+            }
         }
         return nil
     }

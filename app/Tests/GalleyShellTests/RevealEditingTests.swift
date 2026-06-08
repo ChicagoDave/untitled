@@ -72,6 +72,18 @@ struct RevealEditingTests {
         #expect(revealDeleteAction(for: .line(0, 0), in: d) == .deferred)
     }
 
+    @Test func paragraphHardReturnChipIsDeferred() {
+        let d = doc([Block(id: 0, content: .paragraph(runs: [Run(text: "x")]))])
+        // Deleting [p] is a paragraph merge — display-only in v1, so deferred (ADR-0035).
+        #expect(revealDeleteAction(for: .paragraph(0), in: d) == .deferred)
+    }
+
+    @Test func sectionSpacingChipIsDeferred() {
+        let d = doc([Block(id: 0, content: .paragraph(runs: [Run(text: "x")]))])
+        // [sp] is derived from the break — display-only, so deletion is deferred (ADR-0035).
+        #expect(revealDeleteAction(for: .sectionSpace(0), in: d) == .deferred)
+    }
+
     @Test func italicSpanForNonParagraphIsNil() {
         let d = doc([Block(id: 0, content: .setPiece(kind: .verse, lines: [[Run(text: "x", italic: true)]]))])
         #expect(italicSpan(blockID: 0, spanIndex: 0, in: d) == nil)

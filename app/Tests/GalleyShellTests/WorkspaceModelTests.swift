@@ -91,6 +91,46 @@ struct WorkspaceModelTests {
         #expect(session.load().urls.map(\.path) == [url.path])   // open() persisted the session
     }
 
+    // MARK: Reveal orientation persistence (LT5-3)
+
+    @Test func loadOrientationDefaultsToRightWhenNoKeyExists() {
+        let session = sessionStore()
+        #expect(session.loadOrientation() == .right)
+    }
+
+    @Test func savingOrientationThenReadingBackYieldsTheStoredValue() {
+        let session = sessionStore()
+        session.save(orientation: .below)
+        #expect(session.loadOrientation() == .below)
+    }
+
+    @Test func aWorkspaceInitializedFromASessionCarriesTheStoredOrientation() {
+        let session = sessionStore()
+        session.save(orientation: .left)
+
+        let workspace = WorkspaceModel(session: session)
+        #expect(workspace.revealOrientation == .left)
+    }
+
+    @Test func setRevealOrientationUpdatesTheModelAndPersistsToTheSession() {
+        let session = sessionStore()
+        let workspace = WorkspaceModel(session: session)
+        #expect(workspace.revealOrientation == .right)   // default before any change
+
+        workspace.setRevealOrientation(.below)
+
+        #expect(workspace.revealOrientation == .below)         // model updated
+        #expect(session.loadOrientation() == .below)           // persisted for next launch
+    }
+
+    @Test func workspaceWithNoSessionDefaultsToRightAndStillTracksChanges() {
+        let workspace = WorkspaceModel()
+        #expect(workspace.revealOrientation == .right)
+
+        workspace.setRevealOrientation(.left)
+        #expect(workspace.revealOrientation == .left)   // no-store path updates the property
+    }
+
     // MARK: new() DOES
 
     /// new() DOES append a blank buffer and make it current, leaving the prior one.

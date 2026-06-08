@@ -103,9 +103,15 @@ extension InputController {
     // MARK: Click hit-testing
 
     /// The cut whose heading covers `point` (view coordinates), for click-to-edit.
+    ///
+    /// A heading owns its whole line, so the hit-test matches the click's *vertical*
+    /// band rather than the tight glyph box: clicking anywhere on the heading line —
+    /// including the empty space past the end of the title text — enters title editing
+    /// instead of falling through to the prose below (which would glide the caret off
+    /// the heading and read as the caret "jumping").
     func headingCut(atPoint point: NSPoint) -> BlockID? {
         for segment in currentLayout.segments where segment.titleCutBlockID != nil {
-            if let box = rect(forUTF16Range: segment.utf16Range), box.contains(point) {
+            if let box = rect(forUTF16Range: segment.utf16Range), point.y >= box.minY, point.y <= box.maxY {
                 return segment.titleCutBlockID
             }
         }

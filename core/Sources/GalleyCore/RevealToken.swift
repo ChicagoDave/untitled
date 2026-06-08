@@ -68,4 +68,17 @@ public enum CodeID: Equatable, Hashable, Sendable {
     /// reference and caption are intent the typesetter consumes; the chip is the
     /// addressable object the writer sees and can delete (ADR-0009 amendment).
     case figure(BlockID)
+
+    /// The `[p]` hard-return chip terminating a paragraph block, by block — the
+    /// WordPerfect-style paragraph mark that makes the block boundary visible in the
+    /// reveal stream (ADR-0035). Display-only in v1: deleting it (a paragraph merge)
+    /// is deferred, like mid-block `[Chapter]` and set-piece `[line]`.
+    case paragraph(BlockID)
+
+    /// The `[sp]` section-opener spacing chip, by the cut's anchor block — the visible
+    /// marker of the vertical space a section break introduces between its heading and
+    /// the body prose (ADR-0035). Emitted after a boundary cut's title. Display-only:
+    /// the spacing is derived from the break, so the chip is not independently
+    /// deletable (deletion deferred).
+    case sectionSpace(BlockID)
 }
